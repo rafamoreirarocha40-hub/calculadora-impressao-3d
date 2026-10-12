@@ -4,6 +4,7 @@ import urllib.parse
 import pandas as pd
 import os
 import math
+import json
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
@@ -17,7 +18,43 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- FUNÇÃO PARA LOCALIZAR ARQUIVO DE LOGO EM DIVERSOS FORMATOS ---
+CONFIG_FILE = "config.json"
+
+# --- VALORES PADRÃO (SE NÃO EXISTIR FICHEIRO SALVO) ---
+CONFIG_PADRAO = {
+    'custo_filamento_kg': 120.0,
+    'potencia_w': 150.0,
+    'custo_kwh': 0.85,
+    'valor_impressora': 2500.0,
+    'vida_util_h': 5000,
+    'custo_manutencao_h': 0.50,
+    'custo_mao_obra_h': 30.0,
+    'taxa_plataforma_pct': 5.0,
+    'margem_lucro_pct': 100.0,
+    'perda_pct': 5.0,
+    'senha_admin': "1234"
+}
+
+# --- FUNÇÕES PARA CARREGAR E SALVAR CONFIGURAÇÕES PERMANENTES ---
+def carregar_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return CONFIG_PADRAO.copy()
+    return CONFIG_PADRAO.copy()
+
+def salvar_config(novas_configs):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(novas_configs, f, indent=4)
+
+if 'config' not in st.session_state:
+    st.session_state['config'] = carregar_config()
+
+cfg = st.session_state['config']
+
+# --- FUNÇÃO PARA LOCALIZAR ARQUIVO DE LOGO ---
 def encontrar_logo():
     extensoes = ["logo.png", "logo.jpg", "logo.jpeg", "Logo.png", "LOGO.PNG", "Logo.jpg", "LOGO.JPG"]
     for file in extensoes:
@@ -31,24 +68,6 @@ logo_path = encontrar_logo()
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- VALORES PADRÃO (SEGUNDO PLANO / CONFIGURAÇÕES OCULTAS) ---
-if 'config' not in st.session_state:
-    st.session_state['config'] = {
-        'custo_filamento_kg': 120.0,
-        'potencia_w': 150.0,
-        'custo_kwh': 0.85,
-        'valor_impressora': 2500.0,
-        'vida_util_h': 5000,
-        'custo_manutencao_h': 0.50,
-        'custo_mao_obra_h': 30.0,
-        'taxa_plataforma_pct': 5.0,
-        'margem_lucro_pct': 100.0,
-        'perda_pct': 5.0,
-        'senha_admin': "1234"
-    }
-
-cfg = st.session_state['config']
-
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM LOGO ---
 def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_sugerido, prazo_dias):
     buffer = BytesIO()
@@ -61,7 +80,6 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
 
     elements = []
 
-    # Insere a logo se encontrada
     if logo_path:
         img = RLImage(logo_path, width=140, height=70)
         img.hAlign = 'CENTER'
@@ -262,17 +280,41 @@ with aba_admin:
 
     if senha_input == cfg['senha_admin']:
         st.success("Acesso liberado!")
-        cfg['custo_filamento_kg'] = st.number_input("Custo do Filamento (R$/kg)", value=cfg['custo_filamento_kg'], step=5.0)
-        cfg['potencia_w'] = st.number_input("Potência Média da Impressora (Watts)", value=cfg['potencia_w'], step=10.0)
-        cfg['custo_kwh'] = st.number_input("Tarifa de Energia (R$/kWh)", value=cfg['custo_kwh'], step=0.05)
-        cfg['valor_impressora'] = st.number_input("Valor de Compra da Impressora (R$)", value=cfg['valor_impressora'], step=100.0)
-        cfg['vida_util_h'] = st.number_input("Vida Útil Estimada (Horas)", value=cfg['vida_util_h'], step=500)
-        cfg['custo_manutencao_h'] = st.number_input("Custo de Manutenção (R$/hora)", value=cfg['custo_manutencao_h'], step=0.1)
-        cfg['custo_mao_obra_h'] = st.number_input("Custo da sua Hora de Trabalho (R$/hora)", value=cfg['custo_mao_obra_h'], step=5.0)
-        cfg['taxa_plataforma_pct'] = st.number_input("Taxa de Cartão / Maquininha (%)", value=cfg['taxa_plataforma_pct'], step=0.5)
-        cfg['margem_lucro_pct'] = st.number_input("Margem de Lucro Desejada (%)", value=cfg['margem_lucro_pct'], step=5.0)
-        cfg['perda_pct'] = st.number_input("Margem para Falhas / Perdas (%)", value=cfg['perda_pct'], step=1.0)
         
+        # Formulário para guardar as alterações
+        with st.form("form_config"):
+            novo_custo_filamento = st.number_input("Custo do Filamento (R$/kg)", value=float(cfg['custo_filamento_kg']), step=5.0)
+            nova_potencia = st.number_input("Potência Média da Impressora (Watts)", value=float(cfg['potencia_w']), step=10.0)
+            novo_custo_kwh = st.number_input("Tarifa de Energia (R$/kWh)", value=float(cfg['custo_kwh']), step=0.05)
+            novo_valor_impressora = st.number_input("Valor de Compra da Impressora (R$)", value=float(cfg['valor_impressora']), step=100.0)
+            nova_vida_util = st.number_input("Vida Útil Estimada (Horas)", value=int(cfg['vida_util_h']), step=500)
+            novo_custo_manutencao = st.number_input("Custo de Manutenção (R$/hora)", value=float(cfg['custo_manutencao_h']), step=0.1)
+            novo_custo_mao_obra = st.number_input("Custo da sua Hora de Trabalho (R$/hora)", value=float(cfg['custo_mao_obra_h']), step=5.0)
+            nova_taxa_plataforma = st.number_input("Taxa de Cartão / Maquininha (%)", value=float(cfg['taxa_plataforma_pct']), step=0.5)
+            nova_margem_lucro = st.number_input("Margem de Lucro Desejada (%)", value=float(cfg['margem_lucro_pct']), step=5.0)
+            nova_perda = st.number_input("Margem para Falhas / Perdas (%)", value=float(cfg['perda_pct']), step=1.0)
+            nova_senha = st.text_input("Nova Senha de Administrador", value=str(cfg['senha_admin']), type="password")
+            
+            btn_salvar = st.form_submit_button("💾 Salvar Configurações Permanentemente")
+            
+            if btn_salvar:
+                novas_configs = {
+                    'custo_filamento_kg': novo_custo_filamento,
+                    'potencia_w': nova_potencia,
+                    'custo_kwh': novo_custo_kwh,
+                    'valor_impressora': novo_valor_impressora,
+                    'vida_util_h': nova_vida_util,
+                    'custo_manutencao_h': novo_custo_manutencao,
+                    'custo_mao_obra_h': novo_custo_mao_obra,
+                    'taxa_plataforma_pct': nova_taxa_plataforma,
+                    'margem_lucro_pct': nova_margem_lucro,
+                    'perda_pct': nova_perda,
+                    'senha_admin': nova_senha
+                }
+                salvar_config(novas_configs)
+                st.session_state['config'] = novas_configs
+                st.success("✅ Configurações salvas permanentemente com sucesso!")
+
         st.divider()
         st.subheader("🖼️ Upload da Logo")
         
@@ -282,6 +324,5 @@ with aba_admin:
                 f.write(uploaded_logo.getbuffer())
             st.success("Logo atualizada com sucesso! Recarregue a página para visualizar.")
 
-        st.info("As alterações são aplicadas imediatamente nos cálculos da calculadora.")
     elif senha_input != "":
         st.error("Senha incorreta!")
