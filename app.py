@@ -38,7 +38,7 @@ if 'config' not in st.session_state:
 cfg = st.session_state['config']
 
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF ---
-def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, cores, complexidade, preco_final, prazo_dias):
+def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_final, prazo_dias):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -58,7 +58,7 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, cores, complexidade, pre
         [Paragraph("<b>Cliente:</b>", bold_style), Paragraph(cliente, text_style)],
         [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca, text_style)],
         [Paragraph("<b>Peso Estimado:</b>", bold_style), Paragraph(f"{peso_g:.1f} g", text_style)],
-        [Paragraph("<b>Tempo de Impressão:</b>", bold_style), Paragraph(f"{tempo_h:.1f} horas", text_style)],
+        [Paragraph("<b>Tempo de Impressão:</b>", bold_style), Paragraph(tempo_formatado, text_style)],
         [Paragraph("<b>Quantidade de Cores:</b>", bold_style), Paragraph(f"{cores}", text_style)],
         [Paragraph("<b>Complexidade:</b>", bold_style), Paragraph(f"{complexidade}", text_style)],
         [Paragraph("<b>Prazo de Entrega:</b>", bold_style), Paragraph(f"{prazo_dias} dias úteis", text_style)],
@@ -96,13 +96,33 @@ with aba_calculadora:
         nome_cliente = st.text_input("Nome do Cliente", value="Cliente Exemplo")
         nome_peca = st.text_input("Nome / Descrição da Peça", value="Peça Decorativa 3D")
         peso_g = st.number_input("Peso Total (g) [do App]", value=50.0, step=5.0)
-        tempo_impressao_h = st.number_input("Tempo de Impressão (Horas) [do App]", value=3.0, step=0.5)
+
+        st.markdown("**Tempo de Impressão (do App)**")
+        col_th, col_tm = st.columns(2)
+        with col_th:
+            tempo_h = st.number_input("Horas", value=1, min_value=0, step=1)
+        with col_tm:
+            tempo_m = st.number_input("Minutos", value=26, min_value=0, max_value=59, step=1)
 
     with col2:
         qtd_cores = st.selectbox("Quantidade de Cores", ["1 Cor (Monocolor)", "2 a 3 Cores", "4+ Cores (Multicolor Intenso)"])
         complexidade = st.selectbox("Nível de Complexidade", ["Baixa", "Média (+10%)", "Alta (+20%)"])
-        tempo_pos_h = st.number_input("Acabamento / Pós-processamento (Horas)", value=0.2, step=0.1)
+        
+        st.markdown("**Acabamento / Pós-processamento**")
+        col_ph, col_pm = st.columns(2)
+        with col_ph:
+            pos_h = st.number_input("Horas (Pós)", value=0, min_value=0, step=1)
+        with col_pm:
+            pos_m = st.number_input("Minutos (Pós)", value=15, min_value=0, max_value=59, step=1)
+
         prazo_entrega = st.number_input("Prazo de Entrega (Dias Úteis)", value=3, step=1)
+
+    # --- CONVERSÃO DE TEMPO PARA HORAS DECIMAIS ---
+    tempo_impressao_h_dec = tempo_h + (tempo_m / 60.0)
+    tempo_pos_h_dec = pos_h + (pos_m / 60.0)
+    
+    str_tempo_imp = f"{tempo_h}h{tempo_m:02d}min"
+    str_tempo_pos = f"{pos_h}h{pos_m:02d}min"
 
     # --- FATORES DE RISCO/COMPLEXIDADE ---
     fator_cores = 0.10 if qtd_cores == "2 a 3 Cores" else (0.25 if qtd_cores == "4+ Cores (Multicolor Intenso)" else 0.0)
@@ -110,10 +130,10 @@ with aba_calculadora:
 
     # --- CÁLCULOS ---
     custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
-    custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h * cfg['custo_kwh']
+    custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h_dec * cfg['custo_kwh']
     depreciacao_h = cfg['valor_impressora'] / cfg['vida_util_h'] if cfg['vida_util_h'] > 0 else 0
-    custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h
-    custo_mao_obra = tempo_pos_h * cfg['custo_mao_obra_h']
+    custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h_dec
+    custo_mao_obra = tempo_pos_h_dec * cfg['custo_mao_obra_h']
 
     custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra
     adicional_risco = custo_producao_base * (fator_cores + fator_comp)
@@ -150,7 +170,8 @@ with aba_calculadora:
                 "Cliente": nome_cliente,
                 "Peca": nome_peca,
                 "Peso_g": peso_g,
-                "Tempo_h": tempo_impressao_h,
+                "TempoImpressao": str_tempo_imp,
+                "TempoPosProcessamento": str_tempo_pos,
                 "Cores": qtd_cores,
                 "Complexidade": complexidade,
                 "CustoProducao": round(custo_producao_total, 2),
@@ -162,7 +183,7 @@ with aba_calculadora:
 
         # 2. Gerar PDF
         pdf_bytes = gerar_pdf_orcamento(
-            nome_cliente, nome_peca, peso_g, tempo_impressao_h, 
+            nome_cliente, nome_peca, peso_g, str_tempo_imp, 
             qtd_cores, complexidade, preco_venda, prazo_entrega
         )
         st.download_button(
