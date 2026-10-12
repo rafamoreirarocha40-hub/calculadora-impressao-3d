@@ -27,13 +27,13 @@ if 'config' not in st.session_state:
         'taxa_plataforma_pct': 5.0,
         'margem_lucro_pct': 100.0,
         'perda_pct': 5.0,
-        'senha_admin': "1234"  # Altere sua senha aqui se desejar!
+        'senha_admin': "1234"
     }
 
 cfg = st.session_state['config']
 
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF ---
-def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, preco_final, prazo_dias):
+def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, cores, complexidade, preco_final, prazo_dias):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -55,6 +55,8 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, preco_final, prazo_dias)
         [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca, text_style)],
         [Paragraph("<b>Peso Estimado:</b>", bold_style), Paragraph(f"{peso_g:.1f} g", text_style)],
         [Paragraph("<b>Tempo de Impressão:</b>", bold_style), Paragraph(f"{tempo_h:.1f} horas", text_style)],
+        [Paragraph("<b>Quantidade de Cores:</b>", bold_style), Paragraph(f"{cores}", text_style)],
+        [Paragraph("<b>Complexidade:</b>", bold_style), Paragraph(f"{complexidade}", text_style)],
         [Paragraph("<b>Prazo de Entrega:</b>", bold_style), Paragraph(f"{prazo_dias} dias úteis", text_style)],
         [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph(f"<b>R$ {preco_final:.2f}</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
     ]
@@ -89,12 +91,27 @@ with aba_calculadora:
     with col1:
         nome_cliente = st.text_input("Nome do Cliente", value="Cliente Exemplo")
         nome_peca = st.text_input("Nome / Descrição da Peça", value="Peça Decorativa 3D")
-        peso_g = st.number_input("Peso da Peça (g) [do App]", value=50.0, step=5.0)
+        peso_g = st.number_input("Peso Total (g) [do App]", value=50.0, step=5.0)
+        tempo_impressao_h = st.number_input("Tempo de Impressão (Horas) [do App]", value=3.0, step=0.5)
 
     with col2:
-        tempo_impressao_h = st.number_input("Tempo de Impressão (Horas) [do App]", value=3.0, step=0.5)
+        qtd_cores = st.selectbox("Quantidade de Cores", ["1 Cor (Monocolor)", "2 a 3 Cores", "4+ Cores (Multicolor Intenso)"])
+        complexidade = st.selectbox("Nível de Complexidade", ["Baixa", "Média (+10%)", "Alta (+20%)"])
         tempo_pos_h = st.number_input("Acabamento / Pós-processamento (Horas)", value=0.2, step=0.1)
         prazo_entrega = st.number_input("Prazo de Entrega (Dias Úteis)", value=3, step=1)
+
+    # --- FACTORES DE MULTIPLICAÇÃO DE RISCO/COMPLEXIDADE ---
+    fator_cores = 0.0
+    if qtd_cores == "2 a 3 Cores":
+        fator_cores = 0.10  # +10%
+    elif qtd_cores == "4+ Cores (Multicolor Intenso)":
+        fator_cores = 0.25  # +25%
+
+    fator_comp = 0.0
+    if "Média" in complexidade:
+        fator_comp = 0.10   # +10%
+    elif "Alta" in complexidade:
+        fator_comp = 0.20   # +20%
 
     # --- CÁLCULOS EM SEGUNDO PLANO ---
     custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
@@ -103,7 +120,12 @@ with aba_calculadora:
     custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h
     custo_mao_obra = tempo_pos_h * cfg['custo_mao_obra_h']
 
-    custo_producao_total = custo_material + custo_energia + custo_maquina + custo_mao_obra
+    # Custo base de produção
+    custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra
+
+    # Aplicação dos adicionais de cores e complexidade
+    adicional_risco = custo_producao_base * (fator_cores + fator_comp)
+    custo_producao_total = custo_producao_base + adicional_risco
 
     # Preço final ajustado com margem e taxa do cartão
     margem_fator = 1 + (cfg['margem_lucro_pct'] / 100.0)
@@ -117,17 +139,20 @@ with aba_calculadora:
     # --- EXIBIÇÃO DO PREÇO FINAL ---
     st.subheader("💡 Resultado do Orçamento")
     
-    col_res1, col_res2 = st.columns(2)
+    col_res1, col_res2, col_res3 = st.columns(3)
     col_res1.metric("Preço de Venda Final", f"R$ {preco_venda:.2f}")
     col_res2.metric("Lucro Líquido Estimado", f"R$ {lucro_liquido:.2f}")
+    col_res3.metric("Taxas/Adicionais de Risco", f"R$ {adicional_risco:.2f}")
 
     st.divider()
 
     # --- AÇÕES: PDF E WHATSAPP ---
     st.subheader("📲 Ações Rápidas")
 
-    # 1. Gerar PDF
-    pdf_bytes = gerar_pdf_orcamento(nome_cliente, nome_peca, peso_g, tempo_impressao_h, preco_venda, prazo_entrega)
+    pdf_bytes = gerar_pdf_orcamento(
+        nome_cliente, nome_peca, peso_g, tempo_impressao_h, 
+        qtd_cores, complexidade, preco_venda, prazo_entrega
+    )
     st.download_button(
         label="📄 Baixar Orçamento em PDF",
         data=pdf_bytes,
@@ -135,11 +160,11 @@ with aba_calculadora:
         mime="application/pdf"
     )
 
-    # 2. Enviar por WhatsApp
     mensagem_wa = (
         f"Olá *{nome_cliente}*! 👋\n\n"
         f"Segue o orçamento para a impressão da peça *{nome_peca}*:\n"
         f"📌 *Valor Total:* R$ {preco_venda:.2f}\n"
+        f"🎨 *Especificação:* {qtd_cores} | Complexidade {complexidade}\n"
         f"⏱️ *Prazo de Entrega:* {prazo_entrega} dias úteis\n\n"
         f"Podemos confirmar o pedido?"
     )
