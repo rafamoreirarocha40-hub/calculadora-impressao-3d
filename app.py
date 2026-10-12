@@ -17,6 +17,16 @@ st.set_page_config(
     layout="centered"
 )
 
+# --- FUNÇÃO PARA LOCALIZAR ARQUIVO DE LOGO EM DIVERSOS FORMATOS ---
+def encontrar_logo():
+    extensoes = ["logo.png", "logo.jpg", "logo.jpeg", "Logo.png", "LOGO.PNG", "Logo.jpg", "LOGO.JPG"]
+    for file in extensoes:
+        if os.path.exists(file):
+            return file
+    return None
+
+logo_path = encontrar_logo()
+
 # --- INICIALIZAÇÃO DO BANCO DE DADOS EM MEMÓRIA ---
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
@@ -39,7 +49,7 @@ if 'config' not in st.session_state:
 
 cfg = st.session_state['config']
 
-# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF APENAS COM O VALOR SUGERIDO ---
+# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM LOGO ---
 def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_sugerido, prazo_dias):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -51,8 +61,9 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
 
     elements = []
 
-    if os.path.exists("logo.png"):
-        img = RLImage("logo.png", width=120, height=60)
+    # Insere a logo se encontrada
+    if logo_path:
+        img = RLImage(logo_path, width=140, height=70)
         img.hAlign = 'CENTER'
         elements.append(img)
         elements.append(Spacer(1, 10))
@@ -91,10 +102,10 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
     return buffer
 
 # --- EXIBIÇÃO DA LOGO NO TOPO ---
-if os.path.exists("logo.png"):
+if logo_path:
     col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
     with col_logo2:
-        st.image("logo.png", use_container_width=True)
+        st.image(logo_path, use_container_width=True)
 
 # --- ABAS DA APLICAÇÃO ---
 aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Configurações de Custos"])
@@ -199,7 +210,6 @@ with aba_calculadora:
             st.session_state['historico_orcamentos'].append(novo_registro)
             st.success("✅ Orçamento gravado no histórico com sucesso!")
 
-        # O PDF agora recebe diretamente o preco_sugerido
         pdf_bytes = gerar_pdf_orcamento(
             nome_cliente, nome_peca, peso_g, str_tempo_imp, 
             qtd_cores, complexidade, preco_sugerido, prazo_entrega
@@ -262,6 +272,16 @@ with aba_admin:
         cfg['taxa_plataforma_pct'] = st.number_input("Taxa de Cartão / Maquininha (%)", value=cfg['taxa_plataforma_pct'], step=0.5)
         cfg['margem_lucro_pct'] = st.number_input("Margem de Lucro Desejada (%)", value=cfg['margem_lucro_pct'], step=5.0)
         cfg['perda_pct'] = st.number_input("Margem para Falhas / Perdas (%)", value=cfg['perda_pct'], step=1.0)
+        
+        st.divider()
+        st.subheader("🖼️ Upload da Logo")
+        
+        uploaded_logo = st.file_uploader("Enviar ou atualizar imagem da Logo (PNG ou JPG)", type=["png", "jpg", "jpeg"])
+        if uploaded_logo is not None:
+            with open("logo.png", "wb") as f:
+                f.write(uploaded_logo.getbuffer())
+            st.success("Logo atualizada com sucesso! Recarregue a página para visualizar.")
+
         st.info("As alterações são aplicadas imediatamente nos cálculos da calculadora.")
     elif senha_input != "":
         st.error("Senha incorreta!")
