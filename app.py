@@ -2,9 +2,11 @@ import streamlit as st
 import datetime
 import urllib.parse
 import pandas as pd
+import os
+import math
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -37,17 +39,24 @@ if 'config' not in st.session_state:
 
 cfg = st.session_state['config']
 
-# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF ---
-def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_final, prazo_dias):
+# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF APENAS COM O VALOR SUGERIDO ---
+def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_sugerido, prazo_dias):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=20, textColor=colors.HexColor('#1E293B'), alignment=1)
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1E293B'), alignment=1)
     text_style = ParagraphStyle('TextStyle', parent=styles['Normal'], fontSize=11, leading=16, textColor=colors.HexColor('#334155'))
     bold_style = ParagraphStyle('BoldStyle', parent=text_style, fontName='Helvetica-Bold')
 
     elements = []
+
+    if os.path.exists("logo.png"):
+        img = RLImage("logo.png", width=120, height=60)
+        img.hAlign = 'CENTER'
+        elements.append(img)
+        elements.append(Spacer(1, 10))
+    
     elements.append(Paragraph("<b>ORÇAMENTO DE IMPRESSÃO 3D</b>", title_style))
     elements.append(Spacer(1, 15))
     
@@ -62,7 +71,7 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
         [Paragraph("<b>Quantidade de Cores:</b>", bold_style), Paragraph(f"{cores}", text_style)],
         [Paragraph("<b>Complexidade:</b>", bold_style), Paragraph(f"{complexidade}", text_style)],
         [Paragraph("<b>Prazo de Entrega:</b>", bold_style), Paragraph(f"{prazo_dias} dias úteis", text_style)],
-        [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph(f"<b>R$ {preco_final:.2f}</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
+        [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph(f"<b>R$ {preco_sugerido:.2f}</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
     ]
     
     t = Table(dados_tabela, colWidths=[150, 350])
@@ -80,6 +89,12 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
     doc.build(elements)
     buffer.seek(0)
     return buffer
+
+# --- EXIBIÇÃO DA LOGO NO TOPO ---
+if os.path.exists("logo.png"):
+    col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
+    with col_logo2:
+        st.image("logo.png", use_container_width=True)
 
 # --- ABAS DA APLICAÇÃO ---
 aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Configurações de Custos"])
@@ -141,9 +156,12 @@ with aba_calculadora:
 
     margem_fator = 1 + (cfg['margem_lucro_pct'] / 100.0)
     taxa_fator = 1 - (cfg['taxa_plataforma_pct'] / 100.0)
-    preco_venda = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
-    taxa_valor = preco_venda * (cfg['taxa_plataforma_pct'] / 100.0)
-    lucro_liquido = preco_venda - custo_producao_total - taxa_valor
+    
+    preco_exato = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
+    preco_sugerido = float(math.ceil(preco_exato))
+    
+    taxa_valor = preco_sugerido * (cfg['taxa_plataforma_pct'] / 100.0)
+    lucro_liquido = preco_sugerido - custo_producao_total - taxa_valor
 
     st.divider()
 
@@ -151,9 +169,9 @@ with aba_calculadora:
     st.subheader("💡 Resultado do Orçamento")
     
     col_res1, col_res2, col_res3 = st.columns(3)
-    col_res1.metric("Preço de Venda Final", f"R$ {preco_venda:.2f}")
+    col_res1.metric("Preço Sugerido (Arredondado)", f"R$ {preco_sugerido:.2f}", delta=f"Exato: R$ {preco_exato:.2f}")
     col_res2.metric("Lucro Líquido Estimado", f"R$ {lucro_liquido:.2f}")
-    col_res3.metric("Taxas/Adicionais de Risco", f"R$ {adicional_risco:.2f}")
+    col_res3.metric("Custo Total de Produção", f"R$ {custo_producao_total:.2f}")
 
     st.divider()
 
@@ -163,7 +181,6 @@ with aba_calculadora:
     col_act1, col_act2 = st.columns(2)
 
     with col_act1:
-        # 1. Botão para Salvar no Banco de Dados
         if st.button("💾 Registrar Orçamento no Histórico"):
             novo_registro = {
                 "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -175,16 +192,17 @@ with aba_calculadora:
                 "Cores": qtd_cores,
                 "Complexidade": complexidade,
                 "CustoProducao": round(custo_producao_total, 2),
-                "PrecoVenda": round(preco_venda, 2),
+                "PrecoExato": round(preco_exato, 2),
+                "PrecoSugerido": round(preco_sugerido, 2),
                 "LucroLiquido": round(lucro_liquido, 2)
             }
             st.session_state['historico_orcamentos'].append(novo_registro)
             st.success("✅ Orçamento gravado no histórico com sucesso!")
 
-        # 2. Gerar PDF
+        # O PDF agora recebe diretamente o preco_sugerido
         pdf_bytes = gerar_pdf_orcamento(
             nome_cliente, nome_peca, peso_g, str_tempo_imp, 
-            qtd_cores, complexidade, preco_venda, prazo_entrega
+            qtd_cores, complexidade, preco_sugerido, prazo_entrega
         )
         st.download_button(
             label="📄 Baixar Orçamento em PDF",
@@ -194,11 +212,10 @@ with aba_calculadora:
         )
 
     with col_act2:
-        # 3. Enviar por WhatsApp
         mensagem_wa = (
             f"Olá *{nome_cliente}*! 👋\n\n"
             f"Segue o orçamento para a impressão da peça *{nome_peca}*:\n"
-            f"📌 *Valor Total:* R$ {preco_venda:.2f}\n"
+            f"📌 *Valor Total:* R$ {preco_sugerido:.2f}\n"
             f"🎨 *Especificação:* {qtd_cores} | Complexidade {complexidade}\n"
             f"⏱️ *Prazo de Entrega:* {prazo_entrega} dias úteis\n\n"
             f"Podemos confirmar o pedido?"
@@ -214,7 +231,6 @@ with aba_calculadora:
         df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
         st.dataframe(df_historico, use_container_width=True)
 
-        # Botão para Baixar CSV para o Power BI
         csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Exportar Banco de Dados (CSV para Power BI)",
