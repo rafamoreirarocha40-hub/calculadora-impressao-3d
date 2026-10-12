@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 import urllib.parse
+import pandas as pd
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -13,6 +14,10 @@ st.set_page_config(
     page_icon="🖨️",
     layout="centered"
 )
+
+# --- INICIALIZAÇÃO DO BANCO DE DADOS EM MEMÓRIA ---
+if 'historico_orcamentos' not in st.session_state:
+    st.session_state['historico_orcamentos'] = []
 
 # --- VALORES PADRÃO (SEGUNDO PLANO / CONFIGURAÇÕES OCULTAS) ---
 if 'config' not in st.session_state:
@@ -43,7 +48,6 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_h, cores, complexidade, pre
     bold_style = ParagraphStyle('BoldStyle', parent=text_style, fontName='Helvetica-Bold')
 
     elements = []
-    
     elements.append(Paragraph("<b>ORÇAMENTO DE IMPRESSÃO 3D</b>", title_style))
     elements.append(Spacer(1, 15))
     
@@ -100,34 +104,21 @@ with aba_calculadora:
         tempo_pos_h = st.number_input("Acabamento / Pós-processamento (Horas)", value=0.2, step=0.1)
         prazo_entrega = st.number_input("Prazo de Entrega (Dias Úteis)", value=3, step=1)
 
-    # --- FACTORES DE MULTIPLICAÇÃO DE RISCO/COMPLEXIDADE ---
-    fator_cores = 0.0
-    if qtd_cores == "2 a 3 Cores":
-        fator_cores = 0.10  # +10%
-    elif qtd_cores == "4+ Cores (Multicolor Intenso)":
-        fator_cores = 0.25  # +25%
+    # --- FATORES DE RISCO/COMPLEXIDADE ---
+    fator_cores = 0.10 if qtd_cores == "2 a 3 Cores" else (0.25 if qtd_cores == "4+ Cores (Multicolor Intenso)" else 0.0)
+    fator_comp = 0.10 if "Média" in complexidade else (0.20 if "Alta" in complexidade else 0.0)
 
-    fator_comp = 0.0
-    if "Média" in complexidade:
-        fator_comp = 0.10   # +10%
-    elif "Alta" in complexidade:
-        fator_comp = 0.20   # +20%
-
-    # --- CÁLCULOS EM SEGUNDO PLANO ---
+    # --- CÁLCULOS ---
     custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
     custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h * cfg['custo_kwh']
     depreciacao_h = cfg['valor_impressora'] / cfg['vida_util_h'] if cfg['vida_util_h'] > 0 else 0
     custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h
     custo_mao_obra = tempo_pos_h * cfg['custo_mao_obra_h']
 
-    # Custo base de produção
     custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra
-
-    # Aplicação dos adicionais de cores e complexidade
     adicional_risco = custo_producao_base * (fator_cores + fator_comp)
     custo_producao_total = custo_producao_base + adicional_risco
 
-    # Preço final ajustado com margem e taxa do cartão
     margem_fator = 1 + (cfg['margem_lucro_pct'] / 100.0)
     taxa_fator = 1 - (cfg['taxa_plataforma_pct'] / 100.0)
     preco_venda = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
@@ -146,30 +137,72 @@ with aba_calculadora:
 
     st.divider()
 
-    # --- AÇÕES: PDF E WHATSAPP ---
+    # --- AÇÕES RÁPIDAS ---
     st.subheader("📲 Ações Rápidas")
 
-    pdf_bytes = gerar_pdf_orcamento(
-        nome_cliente, nome_peca, peso_g, tempo_impressao_h, 
-        qtd_cores, complexidade, preco_venda, prazo_entrega
-    )
-    st.download_button(
-        label="📄 Baixar Orçamento em PDF",
-        data=pdf_bytes,
-        file_name=f"Orcamento_{nome_cliente.replace(' ', '_')}.pdf",
-        mime="application/pdf"
-    )
+    col_act1, col_act2 = st.columns(2)
 
-    mensagem_wa = (
-        f"Olá *{nome_cliente}*! 👋\n\n"
-        f"Segue o orçamento para a impressão da peça *{nome_peca}*:\n"
-        f"📌 *Valor Total:* R$ {preco_venda:.2f}\n"
-        f"🎨 *Especificação:* {qtd_cores} | Complexidade {complexidade}\n"
-        f"⏱️ *Prazo de Entrega:* {prazo_entrega} dias úteis\n\n"
-        f"Podemos confirmar o pedido?"
-    )
-    wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
-    st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; font-weight:bold;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+    with col_act1:
+        # 1. Botão para Salvar no Banco de Dados
+        if st.button("💾 Registrar Orçamento no Histórico"):
+            novo_registro = {
+                "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Cliente": nome_cliente,
+                "Peca": nome_peca,
+                "Peso_g": peso_g,
+                "Tempo_h": tempo_impressao_h,
+                "Cores": qtd_cores,
+                "Complexidade": complexidade,
+                "CustoProducao": round(custo_producao_total, 2),
+                "PrecoVenda": round(preco_venda, 2),
+                "LucroLiquido": round(lucro_liquido, 2)
+            }
+            st.session_state['historico_orcamentos'].append(novo_registro)
+            st.success("✅ Orçamento gravado no histórico com sucesso!")
+
+        # 2. Gerar PDF
+        pdf_bytes = gerar_pdf_orcamento(
+            nome_cliente, nome_peca, peso_g, tempo_impressao_h, 
+            qtd_cores, complexidade, preco_venda, prazo_entrega
+        )
+        st.download_button(
+            label="📄 Baixar Orçamento em PDF",
+            data=pdf_bytes,
+            file_name=f"Orcamento_{nome_cliente.replace(' ', '_')}.pdf",
+            mime="application/pdf"
+        )
+
+    with col_act2:
+        # 3. Enviar por WhatsApp
+        mensagem_wa = (
+            f"Olá *{nome_cliente}*! 👋\n\n"
+            f"Segue o orçamento para a impressão da peça *{nome_peca}*:\n"
+            f"📌 *Valor Total:* R$ {preco_venda:.2f}\n"
+            f"🎨 *Especificação:* {qtd_cores} | Complexidade {complexidade}\n"
+            f"⏱️ *Prazo de Entrega:* {prazo_entrega} dias úteis\n\n"
+            f"Podemos confirmar o pedido?"
+        )
+        wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
+        st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+
+    # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO PARA POWER BI / EXCEL ---
+    st.divider()
+    st.subheader("📊 Histórico de Orçamentos Registrados")
+
+    if len(st.session_state['historico_orcamentos']) > 0:
+        df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
+        st.dataframe(df_historico, use_container_width=True)
+
+        # Botão para Baixar CSV para o Power BI
+        csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Exportar Banco de Dados (CSV para Power BI)",
+            data=csv_buffer,
+            file_name=f"historico_orcamentos_3d_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Nenhum orçamento registrado no histórico ainda. Clique em '💾 Registrar Orçamento no Histórico' acima para salvar os dados.")
 
 # ==========================================
 # ABA 2: CONFIGURAÇÕES OCULTAS (PROTEGIDA)
@@ -182,7 +215,6 @@ with aba_admin:
 
     if senha_input == cfg['senha_admin']:
         st.success("Acesso liberado!")
-        
         cfg['custo_filamento_kg'] = st.number_input("Custo do Filamento (R$/kg)", value=cfg['custo_filamento_kg'], step=5.0)
         cfg['potencia_w'] = st.number_input("Potência Média da Impressora (Watts)", value=cfg['potencia_w'], step=10.0)
         cfg['custo_kwh'] = st.number_input("Tarifa de Energia (R$/kWh)", value=cfg['custo_kwh'], step=0.05)
@@ -193,7 +225,6 @@ with aba_admin:
         cfg['taxa_plataforma_pct'] = st.number_input("Taxa de Cartão / Maquininha (%)", value=cfg['taxa_plataforma_pct'], step=0.5)
         cfg['margem_lucro_pct'] = st.number_input("Margem de Lucro Desejada (%)", value=cfg['margem_lucro_pct'], step=5.0)
         cfg['perda_pct'] = st.number_input("Margem para Falhas / Perdas (%)", value=cfg['perda_pct'], step=1.0)
-        
         st.info("As alterações são aplicadas imediatamente nos cálculos da calculadora.")
     elif senha_input != "":
         st.error("Senha incorreta!")
