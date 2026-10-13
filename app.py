@@ -20,7 +20,7 @@ st.set_page_config(
 
 CONFIG_FILE = "config.json"
 
-# --- VALORES PADRÃO (INCLUINDO DADOS DE CONFIGURAÇÃO) ---
+# --- VALORES PADRÃO ---
 CONFIG_PADRAO = {
     'custo_filamento_kg': 120.0,
     'potencia_w': 150.0,
@@ -36,7 +36,6 @@ CONFIG_PADRAO = {
     'senha_admin': "1234"
 }
 
-# --- FUNÇÕES PARA CARREGAR E SALVAR CONFIGURAÇÕES PERMANENTES ---
 def carregar_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -59,7 +58,6 @@ if 'config' not in st.session_state:
 
 cfg = st.session_state['config']
 
-# --- FUNÇÃO PARA LOCALIZAR ARQUIVO DE LOGO ---
 def encontrar_logo():
     extensoes = ["logo.png", "logo.jpg", "logo.jpeg", "Logo.png", "LOGO.PNG", "Logo.jpg", "LOGO.JPG"]
     for file in extensoes:
@@ -69,11 +67,10 @@ def encontrar_logo():
 
 logo_path = encontrar_logo()
 
-# --- INICIALIZAÇÃO DO BANCO DE DADOS EM MEMÓRIA ---
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- INICIALIZAÇÃO DAS VARIÁVEIS DE FORMULÁRIO (INICIAM ZERADAS) ---
+# --- VARIÁVEIS DO FORMULÁRIO (INICIAM ZERADAS) ---
 if 'f_cliente' not in st.session_state:
     st.session_state['f_cliente'] = ""
 if 'f_peca' not in st.session_state:
@@ -106,6 +103,8 @@ if 'f_frete_valor' not in st.session_state:
     st.session_state['f_frete_valor'] = 0.00
 if 'f_dias_envio_extra' not in st.session_state:
     st.session_state['f_dias_envio_extra'] = 0
+if 'f_status' not in st.session_state:
+    st.session_state['f_status'] = "Aguardando"
 
 def resetar_orcamento():
     st.session_state['f_cliente'] = ""
@@ -124,15 +123,15 @@ def resetar_orcamento():
     st.session_state['f_tipo_frete'] = "Motoboy / Uber Flash (Local)"
     st.session_state['f_frete_valor'] = 0.00
     st.session_state['f_dias_envio_extra'] = 0
+    st.session_state['f_status'] = "Aguardando"
 
-# --- FUNÇÃO PARA SALVAR AUTOMATICAMENTE NO HISTÓRICO COM STATUS 'AGUARDANDO' ---
-def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato, sugerido, lucro):
+def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato, sugerido, lucro, status_val):
     registro = {
         "ID": len(st.session_state['historico_orcamentos']) + 1,
         "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Cliente": cliente if cliente else "Cliente Geral",
         "Peca": peca if peca else "Peça 3D",
-        "Status": "Aguardando",  # Mantido fixo para gestão posterior na planilha/Power BI
+        "Status": status_val,
         "Peso_g": peso,
         "TempoImpressao": tempo_str,
         "Embalagem_R$": embalagem,
@@ -154,7 +153,6 @@ def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entr
             ultimo['PrecoSugerido'] != registro['PrecoSugerido']):
             st.session_state['historico_orcamentos'].append(registro)
 
-# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM INFORMAÇÕES DE FRETE ---
 def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -206,13 +204,11 @@ def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_
     buffer.seek(0)
     return buffer
 
-# --- EXIBIÇÃO DA LOGO NO TOPO ---
 if logo_path:
     col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
     with col_logo2:
         st.image(logo_path, use_container_width=True)
 
-# --- ABAS DA APLICAÇÃO ---
 aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Configurações de Custos"])
 
 # ==========================================
@@ -248,12 +244,13 @@ with aba_calculadora:
         with col_pm:
             pos_m = st.number_input("Minutos (Pós)", key="f_pm", min_value=0, max_value=59, step=1)
 
+        status_orcamento = st.selectbox("Status do Pedido (para o Histórico)", ["Aguardando", "Pedido Fechado", "Cancelado"], key="f_status")
+
     st.divider()
     st.subheader("📦 Opcionais de Embalagem e Frete")
 
     col_opt1, col_opt2 = st.columns(2)
 
-    # OPCIONAL DE EMBALAGEM (SIM / NÃO)
     with col_opt1:
         tem_embalagem = st.toggle("Incluir Custo de Embalagem?", key="f_tem_embalagem", help="Marque SIM se for usar caixas de papelão, plástico bolha ou mimos no envio.")
         
@@ -261,7 +258,6 @@ with aba_calculadora:
         if tem_embalagem:
             custo_embalagem = st.number_input("Custo da Embalagem (R$)", key="f_embalagem_valor", step=1.0)
 
-    # OPCIONAL DE FRETE (SIM / NÃO)
     with col_opt2:
         tem_frete = st.toggle("Incluir Frete / Entrega?", key="f_tem_frete", help="Marque SIM se for enviar por aplicativo, Correios ou transportadora.")
         
@@ -296,28 +292,23 @@ with aba_calculadora:
                 dias_envio_extra = st.number_input("Dias Úteis do Envio", key="f_dias_envio_extra", min_value=0, step=1)
                 tipo_entrega_str = "Transportadora / Envio Especial"
 
-    # Prazo Final Combinado
     prazo_total_dias = prazo_producao + dias_envio_extra
 
-    # --- CONVERSÃO DE TEMPO PARA HORAS DECIMAIS ---
     tempo_impressao_h_dec = tempo_h + (tempo_m / 60.0)
     tempo_pos_h_dec = pos_h + (pos_m / 60.0)
     
     str_tempo_imp = str(tempo_h) + "h" + str(tempo_m) + "min"
     str_tempo_pos = str(pos_h) + "h" + str(pos_m) + "min"
 
-    # --- FATORES DE RISCO/COMPLEXIDADE ---
     fator_cores = 0.10 if qtd_cores == "2 a 3 Cores" else (0.25 if qtd_cores == "4+ Cores (Multicolor Intenso)" else 0.0)
     fator_comp = 0.10 if "Média" in complexidade else (0.20 if "Alta" in complexidade else 0.0)
 
-    # --- CÁLCULOS ---
     custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
     custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h_dec * cfg['custo_kwh']
     depreciacao_h = cfg['valor_impressora'] / cfg['vida_util_h'] if cfg['vida_util_h'] > 0 else 0
     custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h_dec
     custo_mao_obra = tempo_pos_h_dec * cfg['custo_mao_obra_h']
 
-    # Custo Base acumulando Embalagem e Frete
     custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra + custo_embalagem + custo_frete
     adicional_risco = custo_producao_base * (fator_cores + fator_comp)
     custo_producao_total = custo_producao_base + adicional_risco
@@ -333,7 +324,6 @@ with aba_calculadora:
 
     st.divider()
 
-    # --- EXIBIÇÃO DO PREÇO FINAL ---
     st.subheader("💡 Resultado do Orçamento")
     
     col_res1, col_res2, col_res3 = st.columns(3)
@@ -343,7 +333,6 @@ with aba_calculadora:
 
     st.divider()
 
-    # --- AÇÕES RÁPIDAS ---
     st.subheader("📲 Ações Rápidas")
 
     col_act1, col_act2 = st.columns(2)
@@ -362,7 +351,7 @@ with aba_calculadora:
             auto_salvar_historico(
                 nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
                 custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
-                preco_exato, preco_sugerido, lucro_liquido
+                preco_exato, preco_sugerido, lucro_liquido, status_orcamento
             )
 
     with col_act2:
@@ -382,7 +371,7 @@ with aba_calculadora:
         auto_salvar_historico(
             nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
             custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
-            preco_exato, preco_sugerido, lucro_liquido
+            preco_exato, preco_sugerido, lucro_liquido, status_orcamento
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -390,7 +379,7 @@ with aba_calculadora:
         resetar_orcamento()
         st.rerun()
 
-    # --- SESSÃO DE HISTÓRICO LIMPA (SOMENTE VISUALIZAÇÃO E EXPORTAÇÃO) ---
+    # --- SESSÃO DE HISTÓRICO COM EXPORTAÇÃO FORMATADA EM PONTO E VÍRGULA PARA EXCEL ---
     st.divider()
     st.subheader("📊 Histórico de Orçamentos Registrados")
 
@@ -398,7 +387,8 @@ with aba_calculadora:
         df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
         st.dataframe(df_historico, use_container_width=True)
 
-        csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
+        # SEPARADOR DE PONTO E VÍRGULA (;) + UTF-8-SIG PARA ABRIR PERFEITO NO EXCEL BRASIL
+        csv_buffer = df_historico.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
         st.download_button(
             label="📥 Importar Histórico (CSV para Power BI / Excel)",
             data=csv_buffer,
