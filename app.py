@@ -73,15 +73,15 @@ logo_path = encontrar_logo()
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- INICIALIZAÇÃO DAS VARIÁVEIS DE FORMULÁRIO SE NÃO EXISTIREM ---
+# --- INICIALIZAÇÃO DAS VARIÁVEIS DE FORMULÁRIO (INICIAM TOTALMENTE ZERADAS) ---
 if 'f_cliente' not in st.session_state:
     st.session_state['f_cliente'] = ""
 if 'f_peca' not in st.session_state:
     st.session_state['f_peca'] = ""
 if 'f_peso' not in st.session_state:
-    st.session_state['f_peso'] = 50.0
+    st.session_state['f_peso'] = 0.0
 if 'f_th' not in st.session_state:
-    st.session_state['f_th'] = 1
+    st.session_state['f_th'] = 0
 if 'f_tm' not in st.session_state:
     st.session_state['f_tm'] = 0
 if 'f_cores' not in st.session_state:
@@ -91,9 +91,9 @@ if 'f_comp' not in st.session_state:
 if 'f_ph' not in st.session_state:
     st.session_state['f_ph'] = 0
 if 'f_pm' not in st.session_state:
-    st.session_state['f_pm'] = 15
+    st.session_state['f_pm'] = 0
 if 'f_prazo_prod' not in st.session_state:
-    st.session_state['f_prazo_prod'] = 3
+    st.session_state['f_prazo_prod'] = 0
 if 'f_tem_embalagem' not in st.session_state:
     st.session_state['f_tem_embalagem'] = False
 if 'f_embalagem_valor' not in st.session_state:
@@ -103,7 +103,7 @@ if 'f_tem_frete' not in st.session_state:
 if 'f_tipo_frete' not in st.session_state:
     st.session_state['f_tipo_frete'] = "Motoboy / Uber Flash (Local)"
 if 'f_frete_valor' not in st.session_state:
-    st.session_state['f_frete_valor'] = 15.00
+    st.session_state['f_frete_valor'] = 0.00
 if 'f_dias_envio_extra' not in st.session_state:
     st.session_state['f_dias_envio_extra'] = 0
 
@@ -117,12 +117,12 @@ def resetar_orcamento():
     st.session_state['f_comp'] = "Baixa"
     st.session_state['f_ph'] = 0
     st.session_state['f_pm'] = 0
-    st.session_state['f_prazo_prod'] = 3
+    st.session_state['f_prazo_prod'] = 0
     st.session_state['f_tem_embalagem'] = False
     st.session_state['f_embalagem_valor'] = float(cfg['custo_embalagem_padrao'])
     st.session_state['f_tem_frete'] = False
     st.session_state['f_tipo_frete'] = "Motoboy / Uber Flash (Local)"
-    st.session_state['f_frete_valor'] = 15.00
+    st.session_state['f_frete_valor'] = 0.00
     st.session_state['f_dias_envio_extra'] = 0
 
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM INFORMAÇÕES DE FRETE ---
@@ -190,14 +190,8 @@ aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Confi
 # ABA 1: CALCULADORA RÁPIDA (USO DIÁRIO)
 # ==========================================
 with aba_calculadora:
-    col_tit1, col_tit2 = st.columns([3, 1])
-    with col_tit1:
-        st.title("🖨️ Orçamento Rápido")
-        st.caption("Preencha as informações do produto e selecione os opcionais.")
-    with col_tit2:
-        if st.button("🧹 Novo Orçamento", use_container_width=True):
-            resetar_orcamento()
-            st.rerun()
+    st.title("🖨️ Orçamento Rápido")
+    st.caption("Preencha as informações do produto e selecione os opcionais.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -270,7 +264,7 @@ with aba_calculadora:
                 dias_envio_extra = 5
                 tipo_entrega_str = "Correios (PAC)"
             else:
-                dias_envio_extra = st.number_input("Dias Úteis do Envio", key="f_dias_envio_extra", value=3, step=1)
+                dias_envio_extra = st.number_input("Dias Úteis do Envio", key="f_dias_envio_extra", min_value=0, step=1)
                 tipo_entrega_str = "Transportadora / Envio Especial"
 
     # Prazo Final Combinado
@@ -368,6 +362,11 @@ with aba_calculadora:
         wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
         st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
 
+        # BOTÃO MOVIDO PARA O FINAL DE AÇÕES RÁPIDAS
+        if st.button("🧹 Criar Novo Orçamento (Zerar Tela)", use_container_width=True):
+            resetar_orcamento()
+            st.rerun()
+
     # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO ---
     st.divider()
     st.subheader("📊 Histórico de Orçamentos Registrados")
@@ -406,46 +405,4 @@ with aba_admin:
             novo_valor_impressora = st.number_input("Valor de Compra da Impressora (R$)", value=float(cfg['valor_impressora']), step=100.0)
             nova_vida_util = st.number_input("Vida Útil Estimada (Horas)", value=int(cfg['vida_util_h']), step=500)
             novo_custo_manutencao = st.number_input("Custo de Manutenção (R$/hora)", value=float(cfg['custo_manutencao_h']), step=0.1)
-            novo_custo_mao_obra = st.number_input("Custo da sua Hora de Trabalho (R$/hora)", value=float(cfg['custo_mao_obra_h']), step=5.0)
-            
-            st.markdown("### 📦 Custos Padrão de Embalagem")
-            novo_custo_embalagem = st.number_input("Custo de Embalagem Padrão (R$)", value=float(cfg['custo_embalagem_padrao']), step=0.5, help="Custo padrão pré-carregado ao ligar o botão de embalagem.")
-
-            st.markdown("### 📊 Margens e Taxas")
-            nova_taxa_plataforma = st.number_input("Taxa de Cartão / Maquininha (%)", value=float(cfg['taxa_plataforma_pct']), step=0.5)
-            nova_margem_lucro = st.number_input("Margem de Lucro Desejada (%)", value=float(cfg['margem_lucro_pct']), step=5.0)
-            nova_perda = st.number_input("Margem para Falhas / Perdas (%)", value=float(cfg['perda_pct']), step=1.0)
-            nova_senha = st.text_input("Nova Senha de Administrador", value=str(cfg['senha_admin']), type="password")
-            
-            btn_salvar = st.form_submit_button("💾 Salvar Configurações Permanentemente")
-            
-            if btn_salvar:
-                novas_configs = {
-                    'custo_filamento_kg': novo_custo_filamento,
-                    'potencia_w': nova_potencia,
-                    'custo_kwh': novo_custo_kwh,
-                    'valor_impressora': novo_valor_impressora,
-                    'vida_util_h': nova_vida_util,
-                    'custo_manutencao_h': novo_custo_manutencao,
-                    'custo_mao_obra_h': novo_custo_mao_obra,
-                    'taxa_plataforma_pct': nova_taxa_plataforma,
-                    'margem_lucro_pct': nova_margem_lucro,
-                    'perda_pct': nova_perda,
-                    'custo_embalagem_padrao': novo_custo_embalagem,
-                    'senha_admin': nova_senha
-                }
-                salvar_config(novas_configs)
-                st.session_state['config'] = novas_configs
-                st.success("✅ Configurações salvas permanentemente com sucesso!")
-
-        st.divider()
-        st.subheader("🖼️ Upload da Logo")
-        
-        uploaded_logo = st.file_uploader("Enviar ou atualizar imagem da Logo (PNG ou JPG)", type=["png", "jpg", "jpeg"])
-        if uploaded_logo is not None:
-            with open("logo.png", "wb") as f:
-                f.write(uploaded_logo.getbuffer())
-            st.success("Logo atualizada com sucesso! Recarregue a página para visualizar.")
-
-    elif senha_input != "":
-        st.error("Senha incorreta!")
+            novo_custo_mao_obra = st.number_input("Custo da
