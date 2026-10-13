@@ -70,11 +70,13 @@ logo_path = encontrar_logo()
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- VARIÁVEIS DO FORMULÁRIO (INICIAM ZERADAS) ---
+# --- VARIÁVEIS DO FORMULÁRIO (INICIAM ZERADAS / PADRÃO) ---
 if 'f_cliente' not in st.session_state:
     st.session_state['f_cliente'] = ""
 if 'f_peca' not in st.session_state:
     st.session_state['f_peca'] = ""
+if 'f_qtd' not in st.session_state:
+    st.session_state['f_qtd'] = 1
 if 'f_peso' not in st.session_state:
     st.session_state['f_peso'] = 0.0
 if 'f_th' not in st.session_state:
@@ -103,12 +105,17 @@ if 'f_frete_valor' not in st.session_state:
     st.session_state['f_frete_valor'] = 0.00
 if 'f_dias_envio_extra' not in st.session_state:
     st.session_state['f_dias_envio_extra'] = 0
+if 'f_tem_desconto' not in st.session_state:
+    st.session_state['f_tem_desconto'] = False
+if 'f_desconto_valor' not in st.session_state:
+    st.session_state['f_desconto_valor'] = 0.00
 if 'f_status' not in st.session_state:
     st.session_state['f_status'] = "Aguardando"
 
 def resetar_orcamento():
     st.session_state['f_cliente'] = ""
     st.session_state['f_peca'] = ""
+    st.session_state['f_qtd'] = 1
     st.session_state['f_peso'] = 0.0
     st.session_state['f_th'] = 0
     st.session_state['f_tm'] = 0
@@ -123,25 +130,29 @@ def resetar_orcamento():
     st.session_state['f_tipo_frete'] = "Motoboy / Uber Flash (Local)"
     st.session_state['f_frete_valor'] = 0.00
     st.session_state['f_dias_envio_extra'] = 0
+    st.session_state['f_tem_desconto'] = False
+    st.session_state['f_desconto_valor'] = 0.00
     st.session_state['f_status'] = "Aguardando"
 
-def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato, sugerido, lucro, status_val):
+def auto_salvar_historico(cliente, peca, qtd, peso_unit, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato_total, sugerido_total, desconto_val, preco_final, lucro_liquido_final, status_val):
     registro = {
         "ID": len(st.session_state['historico_orcamentos']) + 1,
         "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Cliente": cliente if cliente else "Cliente Geral",
         "Peca": peca if peca else "Peça 3D",
         "Status": status_val,
-        "Peso_g": peso,
-        "TempoImpressao": tempo_str,
+        "Quantidade": qtd,
+        "PesoUnitario_g": peso_unit,
+        "TempoImpressaoUnit": tempo_str,
         "Embalagem_R$": embalagem,
         "Frete_R$": frete,
         "TipoEntrega": entrega_str,
         "PrazoTotalDias": prazo,
-        "CustoProducao": round(custo_total, 2),
-        "PrecoExato": round(exato, 2),
-        "PrecoSugerido": round(sugerido, 2),
-        "LucroLiquido": round(lucro, 2)
+        "CustoProducaoTotal": round(custo_total, 2),
+        "PrecoSugeridoSemDesconto": round(sugerido_total, 2),
+        "Desconto_R$": round(desconto_val, 2),
+        "ValorFinalCobrado": round(preco_final, 2),
+        "LucroLiquido": round(lucro_liquido_final, 2)
     }
     
     if not st.session_state['historico_orcamentos']:
@@ -150,10 +161,10 @@ def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entr
         ultimo = st.session_state['historico_orcamentos'][-1]
         if (ultimo['Cliente'] != registro['Cliente'] or 
             ultimo['Peca'] != registro['Peca'] or 
-            ultimo['PrecoSugerido'] != registro['PrecoSugerido']):
+            ultimo['ValorFinalCobrado'] != registro['ValorFinalCobrado']):
             st.session_state['historico_orcamentos'].append(registro)
 
-def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete):
+def gerar_pdf_orcamento_simplificado(cliente, peca, qtd, unitario_sugerido, preco_final_total, desconto_aplicado, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -183,16 +194,24 @@ def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_
         [Paragraph("<b>Data:</b>", bold_style), Paragraph(data_hoje, text_style)],
         [Paragraph("<b>Cliente:</b>", bold_style), Paragraph(cliente if cliente else "Cliente", text_style)],
         [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca if peca else "Serviço de Impressão 3D", text_style)],
+        [Paragraph("<b>Quantidade:</b>", bold_style), Paragraph(str(qtd) + " unidade(s)", text_style)],
+        [Paragraph("<b>Valor Unitário:</b>", bold_style), Paragraph("R$ " + str(f"{unitario_sugerido:.2f}"), text_style)],
+    ]
+
+    if desconto_aplicado > 0:
+        dados_tabela.append([Paragraph("<b>Desconto Especial:</b>", bold_style), Paragraph("- R$ " + str(f"{desconto_aplicado:.2f}"), text_style)])
+
+    dados_tabela.extend([
         [Paragraph("<b>Forma de Envio:</b>", bold_style), Paragraph(frete_info_str, text_style)],
         [Paragraph("<b>Prazo Estimado de Entrega:</b>", bold_style), Paragraph(str(prazo_total_dias) + " dias úteis", text_style)],
-        [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph("<b>R$ " + str(f"{preco_sugerido:.2f}") + "</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
-    ]
+        [Paragraph("<b>Valor Total Final:</b>", bold_style), Paragraph("<b>R$ " + str(f"{preco_final_total:.2f}") + "</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
+    ])
     
     t = Table(dados_tabela, colWidths=[160, 340])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
-        ('PADDING', (0,0), (-1,-1), 10),
+        ('PADDING', (0,0), (-1,-1), 9),
     ]))
     
     elements.append(t)
@@ -216,28 +235,33 @@ aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Confi
 # ==========================================
 with aba_calculadora:
     st.title("🖨️ Orçamento Rápido")
-    st.caption("Preencha as informações do produto e selecione os opcionais.")
+    st.caption("Preencha as informações do produto, quantidade e opcionais.")
 
     col1, col2 = st.columns(2)
     with col1:
         nome_cliente = st.text_input("Nome do Cliente", key="f_cliente", placeholder="Ex: João Silva")
         nome_peca = st.text_input("Nome / Descrição da Peça", key="f_peca", placeholder="Ex: Suporte de Headset")
-        peso_g = st.number_input("Peso Total (g) [do App]", key="f_peso", step=5.0, help="Peso total do filamento informado pelo fatiador.")
+        
+        col_q, col_p = st.columns(2)
+        with col_q:
+            quantidade = st.number_input("Quantidade", key="f_qtd", min_value=1, step=1, help="Quantidade de unidades a serem impressas.")
+        with col_p:
+            peso_g = st.number_input("Peso Unitário (g)", key="f_peso", step=5.0, help="Peso do filamento por unidade (do fatiador).")
 
-        st.markdown("**Tempo de Impressão (do App)**")
+        st.markdown("**Tempo Unitário de Impressão (do App)**")
         col_th, col_tm = st.columns(2)
         with col_th:
-            tempo_h = st.number_input("Horas", key="f_th", min_value=0, step=1)
+            tempo_h = st.number_input("Horas (Unit)", key="f_th", min_value=0, step=1)
         with col_tm:
-            tempo_m = st.number_input("Minutos", key="f_tm", min_value=0, max_value=59, step=1)
+            tempo_m = st.number_input("Minutos (Unit)", key="f_tm", min_value=0, max_value=59, step=1)
 
-        prazo_producao = st.number_input("Prazo de Produção (Dias Úteis)", key="f_prazo_prod", step=1, help="Tempo de fabricação da peça na impressora.")
+        prazo_producao = st.number_input("Prazo de Produção (Dias Úteis)", key="f_prazo_prod", step=1, help="Tempo total de fabricação do lote na impressora.")
 
     with col2:
         qtd_cores = st.selectbox("Quantidade de Cores", ["1 Cor (Monocolor)", "2 a 3 Cores", "4+ Cores (Multicolor Intenso)"], key="f_cores")
         complexidade = st.selectbox("Nível de Complexidade", ["Baixa", "Média (+10%)", "Alta (+20%)"], key="f_comp")
         
-        st.markdown("**Acabamento / Pós-processamento**")
+        st.markdown("**Acabamento / Pós-processamento Unitário**")
         col_ph, col_pm = st.columns(2)
         with col_ph:
             pos_h = st.number_input("Horas (Pós)", key="f_ph", min_value=0, step=1)
@@ -247,7 +271,7 @@ with aba_calculadora:
         status_orcamento = st.selectbox("Status do Pedido (para o Histórico)", ["Aguardando", "Pedido Fechado", "Cancelado"], key="f_status")
 
     st.divider()
-    st.subheader("📦 Opcionais de Embalagem e Frete")
+    st.subheader("📦 Opcionais de Embalagem, Frete e Desconto")
 
     col_opt1, col_opt2 = st.columns(2)
 
@@ -257,6 +281,11 @@ with aba_calculadora:
         custo_embalagem = 0.0
         if tem_embalagem:
             custo_embalagem = st.number_input("Custo da Embalagem (R$)", key="f_embalagem_valor", step=1.0)
+
+        tem_desconto = st.toggle("Aplicar Desconto / Promoção?", key="f_tem_desconto", help="Marque SIM para conceder um desconto em R$ no valor total.")
+        val_desconto = 0.0
+        if tem_desconto:
+            val_desconto = st.number_input("Valor do Desconto (R$)", key="f_desconto_valor", step=5.0)
 
     with col_opt2:
         tem_frete = st.toggle("Incluir Frete / Entrega?", key="f_tem_frete", help="Marque SIM se for enviar por aplicativo, Correios ou transportadora.")
@@ -294,20 +323,24 @@ with aba_calculadora:
 
     prazo_total_dias = prazo_producao + dias_envio_extra
 
-    tempo_impressao_h_dec = tempo_h + (tempo_m / 60.0)
-    tempo_pos_h_dec = pos_h + (pos_m / 60.0)
+    # --- CÁLCULOS MULTIPLICADOS PELA QUANTIDADE ---
+    peso_total_g = peso_g * quantidade
+    tempo_impressao_h_dec_unit = tempo_h + (tempo_m / 60.0)
+    tempo_impressao_h_dec_total = tempo_impressao_h_dec_unit * quantidade
+    
+    tempo_pos_h_dec_unit = pos_h + (pos_m / 60.0)
+    tempo_pos_h_dec_total = tempo_pos_h_dec_unit * quantidade
     
     str_tempo_imp = str(tempo_h) + "h" + str(tempo_m) + "min"
-    str_tempo_pos = str(pos_h) + "h" + str(pos_m) + "min"
 
     fator_cores = 0.10 if qtd_cores == "2 a 3 Cores" else (0.25 if qtd_cores == "4+ Cores (Multicolor Intenso)" else 0.0)
     fator_comp = 0.10 if "Média" in complexidade else (0.20 if "Alta" in complexidade else 0.0)
 
-    custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
-    custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h_dec * cfg['custo_kwh']
+    custo_material = (peso_total_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
+    custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h_dec_total * cfg['custo_kwh']
     depreciacao_h = cfg['valor_impressora'] / cfg['vida_util_h'] if cfg['vida_util_h'] > 0 else 0
-    custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h_dec
-    custo_mao_obra = tempo_pos_h_dec * cfg['custo_mao_obra_h']
+    custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h_dec_total
+    custo_mao_obra = tempo_pos_h_dec_total * cfg['custo_mao_obra_h']
 
     custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra + custo_embalagem + custo_frete
     adicional_risco = custo_producao_base * (fator_cores + fator_comp)
@@ -316,19 +349,28 @@ with aba_calculadora:
     margem_fator = 1 + (cfg['margem_lucro_pct'] / 100.0)
     taxa_fator = 1 - (cfg['taxa_plataforma_pct'] / 100.0)
     
-    preco_exato = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
-    preco_sugerido = float(math.ceil(preco_exato))
+    preco_exato_total = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
+    preco_sugerido_total = float(math.ceil(preco_exato_total))
     
-    taxa_valor = preco_sugerido * (cfg['taxa_plataforma_pct'] / 100.0)
-    lucro_liquido = preco_sugerido - custo_producao_total - taxa_valor
+    unitario_sugerido = preco_sugerido_total / quantidade if quantidade > 0 else preco_sugerido_total
+    
+    # Preço Final Ajustado com o Desconto
+    preco_final_com_desconto = max(0.0, preco_sugerido_total - val_desconto)
+    
+    taxa_valor = preco_final_com_desconto * (cfg['taxa_plataforma_pct'] / 100.0)
+    lucro_liquido_final = preco_final_com_desconto - custo_producao_total - taxa_valor
 
     st.divider()
 
     st.subheader("💡 Resultado do Orçamento")
     
     col_res1, col_res2, col_res3 = st.columns(3)
-    col_res1.metric("Preço Sugerido (Arredondado)", "R$ " + str(f"{preco_sugerido:.2f}"), delta="Exato: R$ " + str(f"{preco_exato:.2f}"))
-    col_res2.metric("Lucro Líquido Estimado", "R$ " + str(f"{lucro_liquido:.2f}"))
+    col_res1.metric(
+        f"Preço Final Total ({quantidade}x)", 
+        "R$ " + str(f"{preco_final_com_desconto:.2f}"), 
+        delta=f"Unitário: R$ {unitario_sugerido:.2f}" if val_desconto == 0 else f"Desc: -R$ {val_desconto:.2f}"
+    )
+    col_res2.metric("Lucro Líquido Real", "R$ " + str(f"{lucro_liquido_final:.2f}"))
     col_res3.metric("Prazo Total Estimado", str(prazo_total_dias) + " dias úteis", delta="Prod: " + str(prazo_producao) + "d + Envio: " + str(dias_envio_extra) + "d")
 
     st.divider()
@@ -339,7 +381,7 @@ with aba_calculadora:
 
     with col_act1:
         pdf_bytes = gerar_pdf_orcamento_simplificado(
-            nome_cliente, nome_peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete
+            nome_cliente, nome_peca, quantidade, unitario_sugerido, preco_final_com_desconto, val_desconto, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete
         )
         
         if st.download_button(
@@ -349,19 +391,22 @@ with aba_calculadora:
             mime="application/pdf"
         ):
             auto_salvar_historico(
-                nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
+                nome_cliente, nome_peca, quantidade, peso_g, str_tempo_imp, custo_embalagem, 
                 custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
-                preco_exato, preco_sugerido, lucro_liquido, status_orcamento
+                preco_exato_total, preco_sugerido_total, val_desconto, preco_final_com_desconto, 
+                lucro_liquido_final, status_orcamento
             )
 
     with col_act2:
         info_frete_wa = "🚚 *Envio:* " + tipo_entrega_str + " (R$ " + str(f"{custo_frete:.2f}") + ")\n" if tem_frete and custo_frete > 0 else "🚚 *Envio:* " + tipo_entrega_str + "\n"
+        info_desc_wa = f"🏷️ *Desconto Especial:* -R$ {val_desconto:.2f}\n" if val_desconto > 0 else ""
         
         mensagem_wa = (
             "Olá *" + (nome_cliente if nome_cliente else 'Cliente') + "*! 👋\n\n"
             "Segue o orçamento para a impressão da peça *" + (nome_peca if nome_peca else 'Peça 3D') + "*:\n"
-            "📌 *Valor Total:* R$ " + str(f"{preco_sugerido:.2f}") + "\n"
-            + info_frete_wa +
+            "🔢 *Quantidade:* " + str(quantidade) + " unidade(s)\n"
+            "📌 *Valor Total:* R$ " + str(f"{preco_final_com_desconto:.2f}") + "\n"
+            + info_desc_wa + info_frete_wa +
             "⏱️ *Prazo Estimado de Entrega:* " + str(prazo_total_dias) + " dias úteis\n\n"
             "Podemos confirmar o pedido?"
         )
@@ -369,9 +414,10 @@ with aba_calculadora:
         
         st.markdown('<a href="' + wa_url + '" target="_blank" onclick="window.location.reload();"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px; width:100%;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
         auto_salvar_historico(
-            nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
+            nome_cliente, nome_peca, quantidade, peso_g, str_tempo_imp, custo_embalagem, 
             custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
-            preco_exato, preco_sugerido, lucro_liquido, status_orcamento
+            preco_exato_total, preco_sugerido_total, val_desconto, preco_final_com_desconto, 
+            lucro_liquido_final, status_orcamento
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -379,7 +425,7 @@ with aba_calculadora:
         resetar_orcamento()
         st.rerun()
 
-    # --- SESSÃO DE HISTÓRICO COM EXPORTAÇÃO FORMATADA EM PONTO E VÍRGULA PARA EXCEL ---
+    # --- SESSÃO DE HISTÓRICO COM EXPORTAÇÃO FORMATADA PARA EXCEL (SEPARADOR ;) ---
     st.divider()
     st.subheader("📊 Histórico de Orçamentos Registrados")
 
@@ -387,7 +433,6 @@ with aba_calculadora:
         df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
         st.dataframe(df_historico, use_container_width=True)
 
-        # SEPARADOR DE PONTO E VÍRGULA (;) + UTF-8-SIG PARA ABRIR PERFEITO NO EXCEL BRASIL
         csv_buffer = df_historico.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
         st.download_button(
             label="📥 Importar Histórico (CSV para Power BI / Excel)",
