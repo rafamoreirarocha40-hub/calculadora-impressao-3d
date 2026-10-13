@@ -125,14 +125,14 @@ def resetar_orcamento():
     st.session_state['f_frete_valor'] = 0.00
     st.session_state['f_dias_envio_extra'] = 0
 
-# --- FUNÇÃO PARA SALVAR AUTOMATICAMENTE NO HISTÓRICO COM STATUS ---
+# --- FUNÇÃO PARA SALVAR AUTOMATICAMENTE NO HISTÓRICO COM STATUS 'AGUARDANDO' ---
 def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato, sugerido, lucro):
     registro = {
         "ID": len(st.session_state['historico_orcamentos']) + 1,
         "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Cliente": cliente if cliente else "Cliente Geral",
         "Peca": peca if peca else "Peça 3D",
-        "Status": "Aguardando",
+        "Status": "Aguardando",  # Mantido fixo para gestão posterior na planilha/Power BI
         "Peso_g": peso,
         "TempoImpressao": tempo_str,
         "Embalagem_R$": embalagem,
@@ -390,45 +390,13 @@ with aba_calculadora:
         resetar_orcamento()
         st.rerun()
 
-    # --- SESSÃO DE HISTÓRICO COM FILTROS DE STATUS ---
+    # --- SESSÃO DE HISTÓRICO LIMPA (SOMENTE VISUALIZAÇÃO E EXPORTAÇÃO) ---
     st.divider()
-    st.subheader("📊 Histórico & Funil de Vendas")
+    st.subheader("📊 Histórico de Orçamentos Registrados")
 
     if len(st.session_state['historico_orcamentos']) > 0:
-        # Filtros de Status
-        col_f1, col_f2 = st.columns([2, 1])
-        with col_f1:
-            filtro_status = st.radio(
-                "Filtrar por Status do Pedido:",
-                ["Todos", "Aguardando", "Pedido Fechado", "Cancelado"],
-                horizontal=True
-            )
-        
         df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
-
-        # Atualizar Status de um Orçamento Específico
-        with st.expander("✏️ Atualizar Status de um Orçamento"):
-            col_up1, col_up2, col_up3 = st.columns([1, 2, 1])
-            with col_up1:
-                id_sel = st.selectbox("Selecione o ID", df_historico['ID'].tolist())
-            with col_up2:
-                novo_st = st.selectbox("Novo Status", ["Aguardando", "Pedido Fechado", "Cancelado"])
-            with col_up3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("Atualizar Status"):
-                    for item in st.session_state['historico_orcamentos']:
-                        if item['ID'] == id_sel:
-                            item['Status'] = novo_st
-                    st.success("Status atualizado com sucesso!")
-                    st.rerun()
-
-        # Filtragem dos dados para exibição
-        if filtro_status != "Todos":
-            df_exibicao = df_historico[df_historico['Status'] == filtro_status]
-        else:
-            df_exibicao = df_historico
-
-        st.dataframe(df_exibicao, use_container_width=True)
+        st.dataframe(df_historico, use_container_width=True)
 
         csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
         st.download_button(
