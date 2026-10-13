@@ -134,6 +134,7 @@ def resetar_orcamento():
     st.session_state['f_desconto_valor'] = 0.00
     st.session_state['f_status'] = "Aguardando"
 
+# --- AUTO-SALVAR PROTEGIDO CONTRA ERROS DE CHAVE DA MEMÓRIA ANTERIOR ---
 def auto_salvar_historico(cliente, peca, qtd, peso_unit, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato_total, sugerido_total, desconto_val, preco_final, lucro_liquido_final, status_val):
     registro = {
         "ID": len(st.session_state['historico_orcamentos']) + 1,
@@ -159,9 +160,10 @@ def auto_salvar_historico(cliente, peca, qtd, peso_unit, tempo_str, embalagem, f
         st.session_state['historico_orcamentos'].append(registro)
     else:
         ultimo = st.session_state['historico_orcamentos'][-1]
-        if (ultimo['Cliente'] != registro['Cliente'] or 
-            ultimo['Peca'] != registro['Peca'] or 
-            ultimo['ValorFinalCobrado'] != registro['ValorFinalCobrado']):
+        ultimo_valor = ultimo.get('ValorFinalCobrado', ultimo.get('PrecoSugerido', 0.0))
+        if (ultimo.get('Cliente') != registro['Cliente'] or 
+            ultimo.get('Peca') != registro['Peca'] or 
+            ultimo_valor != registro['ValorFinalCobrado']):
             st.session_state['historico_orcamentos'].append(registro)
 
 def gerar_pdf_orcamento_simplificado(cliente, peca, qtd, unitario_sugerido, preco_final_total, desconto_aplicado, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete):
@@ -323,7 +325,6 @@ with aba_calculadora:
 
     prazo_total_dias = prazo_producao + dias_envio_extra
 
-    # --- CÁLCULOS MULTIPLICADOS PELA QUANTIDADE ---
     peso_total_g = peso_g * quantidade
     tempo_impressao_h_dec_unit = tempo_h + (tempo_m / 60.0)
     tempo_impressao_h_dec_total = tempo_impressao_h_dec_unit * quantidade
@@ -354,7 +355,6 @@ with aba_calculadora:
     
     unitario_sugerido = preco_sugerido_total / quantidade if quantidade > 0 else preco_sugerido_total
     
-    # Preço Final Ajustado com o Desconto
     preco_final_com_desconto = max(0.0, preco_sugerido_total - val_desconto)
     
     taxa_valor = preco_final_com_desconto * (cfg['taxa_plataforma_pct'] / 100.0)
