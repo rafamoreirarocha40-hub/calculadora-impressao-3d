@@ -20,7 +20,7 @@ st.set_page_config(
 
 CONFIG_FILE = "config.json"
 
-# --- VALORES PADRÃO (SE NÃO EXISTIR FICHEIRO SALVO) ---
+# --- VALORES PADRÃO (SE NÃO EXISTIR ARQUIVO SALVO) ---
 CONFIG_PADRAO = {
     'custo_filamento_kg': 120.0,
     'potencia_w': 150.0,
@@ -68,8 +68,25 @@ logo_path = encontrar_logo()
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM LOGO ---
-def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexidade, preco_sugerido, prazo_dias):
+# --- FUNÇÃO PARA LIMPAR FORMULÁRIO (RESTAURAR CAMPOS EM BRANCO/PADRÃO) ---
+def limpar_campos():
+    st.session_state['f_cliente'] = ""
+    st.session_state['f_peca'] = ""
+    st.session_state['f_peso'] = 50.0
+    st.session_state['f_th'] = 1
+    st.session_state['f_tm'] = 0
+    st.session_state['f_cores'] = "1 Cor (Monocolor)"
+    st.session_state['f_comp'] = "Baixa"
+    st.session_state['f_ph'] = 0
+    st.session_state['f_pm'] = 15
+    st.session_state['f_prazo'] = 3
+
+# Inicialização das chaves do formulário se não existirem
+if 'f_cliente' not in st.session_state:
+    limpar_campos()
+
+# --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF SIMPLIFICADO ---
+def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_dias):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -93,12 +110,8 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
     
     dados_tabela = [
         [Paragraph("<b>Data:</b>", bold_style), Paragraph(data_hoje, text_style)],
-        [Paragraph("<b>Cliente:</b>", bold_style), Paragraph(cliente, text_style)],
-        [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca, text_style)],
-        [Paragraph("<b>Peso Estimado:</b>", bold_style), Paragraph(f"{peso_g:.1f} g", text_style)],
-        [Paragraph("<b>Tempo de Impressão:</b>", bold_style), Paragraph(tempo_formatado, text_style)],
-        [Paragraph("<b>Quantidade de Cores:</b>", bold_style), Paragraph(f"{cores}", text_style)],
-        [Paragraph("<b>Complexidade:</b>", bold_style), Paragraph(f"{complexidade}", text_style)],
+        [Paragraph("<b>Cliente:</b>", bold_style), Paragraph(cliente if cliente else "Cliente", text_style)],
+        [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca if peca else "Serviço de Impressão 3D", text_style)],
         [Paragraph("<b>Prazo de Entrega:</b>", bold_style), Paragraph(f"{prazo_dias} dias úteis", text_style)],
         [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph(f"<b>R$ {preco_sugerido:.2f}</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
     ]
@@ -107,7 +120,7 @@ def gerar_pdf_orcamento(cliente, peca, peso_g, tempo_formatado, cores, complexid
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
-        ('PADDING', (0,0), (-1,-1), 8),
+        ('PADDING', (0,0), (-1,-1), 10),
     ]))
     
     elements.append(t)
@@ -132,34 +145,38 @@ aba_calculadora, aba_admin = st.tabs(["🖨️ Calculadora Rápida", "🔒 Confi
 # ABA 1: CALCULADORA RÁPIDA (USO DIÁRIO)
 # ==========================================
 with aba_calculadora:
-    st.title("🖨️ Orçamento Rápido")
-    st.caption("Preencha apenas as informações básicas extraídas do app da impressora.")
+    col_tit1, col_tit2 = st.columns([3, 1])
+    with col_tit1:
+        st.title("🖨️ Orçamento Rápido")
+        st.caption("Preencha as informações da peça obtidas no app do fatiador.")
+    with col_tit2:
+        st.button("🧹 Novo Orçamento", on_click=limpar_campos, use_container_width=True)
 
     col1, col2 = st.columns(2)
     with col1:
-        nome_cliente = st.text_input("Nome do Cliente", value="Cliente Exemplo")
-        nome_peca = st.text_input("Nome / Descrição da Peça", value="Peça Decorativa 3D")
-        peso_g = st.number_input("Peso Total (g) [do App]", value=50.0, step=5.0)
+        nome_cliente = st.text_input("Nome do Cliente", key="f_cliente", placeholder="Ex: João Silva")
+        nome_peca = st.text_input("Nome / Descrição da Peça", key="f_peca", placeholder="Ex: Suporte de Headset")
+        peso_g = st.number_input("Peso Total (g) [do App]", key="f_peso", step=5.0)
 
         st.markdown("**Tempo de Impressão (do App)**")
         col_th, col_tm = st.columns(2)
         with col_th:
-            tempo_h = st.number_input("Horas", value=1, min_value=0, step=1)
+            tempo_h = st.number_input("Horas", key="f_th", min_value=0, step=1)
         with col_tm:
-            tempo_m = st.number_input("Minutos", value=26, min_value=0, max_value=59, step=1)
+            tempo_m = st.number_input("Minutos", key="f_tm", min_value=0, max_value=59, step=1)
 
     with col2:
-        qtd_cores = st.selectbox("Quantidade de Cores", ["1 Cor (Monocolor)", "2 a 3 Cores", "4+ Cores (Multicolor Intenso)"])
-        complexidade = st.selectbox("Nível de Complexidade", ["Baixa", "Média (+10%)", "Alta (+20%)"])
+        qtd_cores = st.selectbox("Quantidade de Cores", ["1 Cor (Monocolor)", "2 a 3 Cores", "4+ Cores (Multicolor Intenso)"], key="f_cores")
+        complexidade = st.selectbox("Nível de Complexidade", ["Baixa", "Média (+10%)", "Alta (+20%)"], key="f_comp")
         
         st.markdown("**Acabamento / Pós-processamento**")
         col_ph, col_pm = st.columns(2)
         with col_ph:
-            pos_h = st.number_input("Horas (Pós)", value=0, min_value=0, step=1)
+            pos_h = st.number_input("Horas (Pós)", key="f_ph", min_value=0, step=1)
         with col_pm:
-            pos_m = st.number_input("Minutos (Pós)", value=15, min_value=0, max_value=59, step=1)
+            pos_m = st.number_input("Minutos (Pós)", key="f_pm", min_value=0, max_value=59, step=1)
 
-        prazo_entrega = st.number_input("Prazo de Entrega (Dias Úteis)", value=3, step=1)
+        prazo_entrega = st.number_input("Prazo de Entrega (Dias Úteis)", key="f_prazo", step=1)
 
     # --- CONVERSÃO DE TEMPO PARA HORAS DECIMAIS ---
     tempo_impressao_h_dec = tempo_h + (tempo_m / 60.0)
@@ -213,11 +230,10 @@ with aba_calculadora:
         if st.button("💾 Registrar Orçamento no Histórico"):
             novo_registro = {
                 "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Cliente": nome_cliente,
-                "Peca": nome_peca,
+                "Cliente": nome_cliente if nome_cliente else "Cliente Exemplo",
+                "Peca": nome_peca if nome_peca else "Peça 3D",
                 "Peso_g": peso_g,
                 "TempoImpressao": str_tempo_imp,
-                "TempoPosProcessamento": str_tempo_pos,
                 "Cores": qtd_cores,
                 "Complexidade": complexidade,
                 "CustoProducao": round(custo_producao_total, 2),
@@ -226,32 +242,32 @@ with aba_calculadora:
                 "LucroLiquido": round(lucro_liquido, 2)
             }
             st.session_state['historico_orcamentos'].append(novo_registro)
-            st.success("✅ Orçamento gravado no histórico com sucesso!")
+            st.success("✅ Orçamento gravado no histórico!")
 
-        pdf_bytes = gerar_pdf_orcamento(
-            nome_cliente, nome_peca, peso_g, str_tempo_imp, 
-            qtd_cores, complexidade, preco_sugerido, prazo_entrega
+        # PDF sem informações internas de tempo, peso, cores e complexidade
+        pdf_bytes = gerar_pdf_orcamento_simplificado(
+            nome_cliente, nome_peca, preco_sugerido, prazo_entrega
         )
         st.download_button(
             label="📄 Baixar Orçamento em PDF",
             data=pdf_bytes,
-            file_name=f"Orcamento_{nome_cliente.replace(' ', '_')}.pdf",
+            file_name=f"Orcamento_{nome_cliente.replace(' ', '_') if nome_cliente else 'Cliente'}.pdf",
             mime="application/pdf"
         )
 
     with col_act2:
+        # Mensagem do WhatsApp simplificada
         mensagem_wa = (
-            f"Olá *{nome_cliente}*! 👋\n\n"
-            f"Segue o orçamento para a impressão da peça *{nome_peca}*:\n"
+            f"Olá *{nome_cliente if nome_cliente else 'Cliente'}*! 👋\n\n"
+            f"Segue o orçamento para a impressão da peça *{nome_peca if nome_peca else 'Peça 3D'}*:\n"
             f"📌 *Valor Total:* R$ {preco_sugerido:.2f}\n"
-            f"🎨 *Especificação:* {qtd_cores} | Complexidade {complexidade}\n"
             f"⏱️ *Prazo de Entrega:* {prazo_entrega} dias úteis\n\n"
             f"Podemos confirmar o pedido?"
         )
         wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
         st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
 
-    # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO PARA POWER BI / EXCEL ---
+    # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO ---
     st.divider()
     st.subheader("📊 Histórico de Orçamentos Registrados")
 
@@ -261,7 +277,7 @@ with aba_calculadora:
 
         csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Exportar Banco de Dados (CSV para Power BI)",
+            label="📥 Exportar Histórico (CSV para Power BI / Excel)",
             data=csv_buffer,
             file_name=f"historico_orcamentos_3d_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
@@ -281,7 +297,6 @@ with aba_admin:
     if senha_input == cfg['senha_admin']:
         st.success("Acesso liberado!")
         
-        # Formulário para guardar as alterações
         with st.form("form_config"):
             novo_custo_filamento = st.number_input("Custo do Filamento (R$/kg)", value=float(cfg['custo_filamento_kg']), step=5.0)
             nova_potencia = st.number_input("Potência Média da Impressora (Watts)", value=float(cfg['potencia_w']), step=10.0)
