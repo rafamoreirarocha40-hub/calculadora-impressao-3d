@@ -284,4 +284,168 @@ with aba_calculadora:
     str_tempo_pos = f"{pos_h}h{pos_m:02d}min"
 
     # --- FATORES DE RISCO/COMPLEXIDADE ---
-    fator_cores = 0.10 if qtd_cores == "2 a
+    fator_cores = 0.10 if qtd_cores == "2 a 3 Cores" else (0.25 if qtd_cores == "4+ Cores (Multicolor Intenso)" else 0.0)
+    fator_comp = 0.10 if "Média" in complexidade else (0.20 if "Alta" in complexidade else 0.0)
+
+    # --- CÁLCULOS ---
+    custo_material = (peso_g / 1000.0) * cfg['custo_filamento_kg'] * (1 + (cfg['perda_pct'] / 100.0))
+    custo_energia = (cfg['potencia_w'] / 1000.0) * tempo_impressao_h_dec * cfg['custo_kwh']
+    depreciacao_h = cfg['valor_impressora'] / cfg['vida_util_h'] if cfg['vida_util_h'] > 0 else 0
+    custo_maquina = (depreciacao_h + cfg['custo_manutencao_h']) * tempo_impressao_h_dec
+    custo_mao_obra = tempo_pos_h_dec * cfg['custo_mao_obra_h']
+
+    # Custo Base acumulando Embalagem e Frete
+    custo_producao_base = custo_material + custo_energia + custo_maquina + custo_mao_obra + custo_embalagem + custo_frete
+    adicional_risco = custo_producao_base * (fator_cores + fator_comp)
+    custo_producao_total = custo_producao_base + adicional_risco
+
+    margem_fator = 1 + (cfg['margem_lucro_pct'] / 100.0)
+    taxa_fator = 1 - (cfg['taxa_plataforma_pct'] / 100.0)
+    
+    preco_exato = (custo_producao_total * margem_fator) / taxa_fator if taxa_fator > 0 else custo_producao_total * margem_fator
+    preco_sugerido = float(math.ceil(preco_exato))
+    
+    taxa_valor = preco_sugerido * (cfg['taxa_plataforma_pct'] / 100.0)
+    lucro_liquido = preco_sugerido - custo_producao_total - taxa_valor
+
+    st.divider()
+
+    # --- EXIBIÇÃO DO PREÇO FINAL ---
+    st.subheader("💡 Resultado do Orçamento")
+    
+    col_res1, col_res2, col_res3 = st.columns(3)
+    col_res1.metric("Preço Sugerido (Arredondado)", f"R$ {preco_sugerido:.2f}", delta=f"Exato: R$ {preco_exato:.2f}")
+    col_res2.metric("Lucro Líquido Estimado", f"R$ {lucro_liquido:.2f}")
+    col_res3.metric("Prazo Total Estimado", f"{prazo_total_dias} dias úteis", delta=f"Produção: {prazo_producao}d + Envio: {dias_envio_extra}d")
+
+    st.divider()
+
+    # --- AÇÕES RÁPIDAS ---
+    st.subheader("📲 Ações Rápidas")
+
+    col_act1, col_act2 = st.columns(2)
+
+    with col_act1:
+        if st.button("💾 Registrar Orçamento no Histórico"):
+            novo_registro = {
+                "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Cliente": nome_cliente if nome_cliente else "Cliente Exemplo",
+                "Peca": nome_peca if nome_peca else "Peça 3D",
+                "Peso_g": peso_g,
+                "TempoImpressao": str_tempo_imp,
+                "Embalagem_R$": custo_embalagem,
+                "Frete_R$": custo_frete,
+                "TipoEntrega": tipo_entrega_str,
+                "PrazoTotalDias": prazo_total_dias,
+                "CustoProducao": round(custo_producao_total, 2),
+                "PrecoExato": round(preco_exato, 2),
+                "PrecoSugerido": round(preco_sugerido, 2),
+                "LucroLiquido": round(lucro_liquido, 2)
+            }
+            st.session_state['historico_orcamentos'].append(novo_registro)
+            st.success("✅ Orçamento gravado no histórico!")
+
+        pdf_bytes = gerar_pdf_orcamento_simplificado(
+            nome_cliente, nome_peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete
+        )
+        st.download_button(
+            label="📄 Baixar Orçamento em PDF",
+            data=pdf_bytes,
+            file_name=f"Orcamento_{nome_cliente.replace(' ', '_') if nome_cliente else 'Cliente'}.pdf",
+            mime="application/pdf"
+        )
+
+    with col_act2:
+        info_frete_wa = f"🚚 *Envio:* {tipo_entrega_str} (R$ {custo_frete:.2f})\n" if tem_frete and custo_frete > 0 else f"🚚 *Envio:* {tipo_entrega_str}\n"
+        mensagem_wa = (
+            f"Olá *{nome_cliente if nome_cliente else 'Cliente'}*! 👋\n\n"
+            f"Segue o orçamento para a impressão da peça *{nome_peca if nome_peca else 'Peça 3D'}*:\n"
+            f"📌 *Valor Total:* R$ {preco_sugerido:.2f}\n"
+            f"{info_frete_wa}"
+            f"⏱️ *Prazo Estimado de Entrega:* {prazo_total_dias} dias úteis\n\n"
+            f"Podemos confirmar o pedido?"
+        )
+        wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
+        st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+
+    # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO ---
+    st.divider()
+    st.subheader("📊 Histórico de Orçamentos Registrados")
+
+    if len(st.session_state['historico_orcamentos']) > 0:
+        df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
+        st.dataframe(df_historico, use_container_width=True)
+
+        csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Exportar Histórico (CSV para Power BI / Excel)",
+            data=csv_buffer,
+            file_name=f"historico_orcamentos_3d_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Nenhum orçamento registrado no histórico ainda. Clique em '💾 Registrar Orçamento no Histórico' acima para salvar os dados.")
+
+# ==========================================
+# ABA 2: CONFIGURAÇÕES OCULTAS (PROTEGIDA)
+# ==========================================
+with aba_admin:
+    st.title("🔒 Área Restrita de Custos")
+    st.caption("Altere aqui os custos padrão de insumos, hora, embalagem e margens.")
+
+    senha_input = st.text_input("Digite a senha de administrador", type="password")
+
+    if senha_input == cfg['senha_admin']:
+        st.success("Acesso liberado!")
+        
+        with st.form("form_config"):
+            st.markdown("### ⚙️ Custos Operacionais e Maquinário")
+            novo_custo_filamento = st.number_input("Custo do Filamento (R$/kg)", value=float(cfg['custo_filamento_kg']), step=5.0)
+            nova_potencia = st.number_input("Potência Média da Impressora (Watts)", value=float(cfg['potencia_w']), step=10.0)
+            novo_custo_kwh = st.number_input("Tarifa de Energia (R$/kWh)", value=float(cfg['custo_kwh']), step=0.05)
+            novo_valor_impressora = st.number_input("Valor de Compra da Impressora (R$)", value=float(cfg['valor_impressora']), step=100.0)
+            nova_vida_util = st.number_input("Vida Útil Estimada (Horas)", value=int(cfg['vida_util_h']), step=500)
+            novo_custo_manutencao = st.number_input("Custo de Manutenção (R$/hora)", value=float(cfg['custo_manutencao_h']), step=0.1)
+            novo_custo_mao_obra = st.number_input("Custo da sua Hora de Trabalho (R$/hora)", value=float(cfg['custo_mao_obra_h']), step=5.0)
+            
+            st.markdown("### 📦 Custos Padrão de Embalagem")
+            novo_custo_embalagem = st.number_input("Custo de Embalagem Padrão (R$)", value=float(cfg['custo_embalagem_padrao']), step=0.5, help="Custo padrão pré-carregado ao ligar o botão de embalagem.")
+
+            st.markdown("### 📊 Margens e Taxas")
+            nova_taxa_plataforma = st.number_input("Taxa de Cartão / Maquininha (%)", value=float(cfg['taxa_plataforma_pct']), step=0.5)
+            nova_margem_lucro = st.number_input("Margem de Lucro Desejada (%)", value=float(cfg['margem_lucro_pct']), step=5.0)
+            nova_perda = st.number_input("Margem para Falhas / Perdas (%)", value=float(cfg['perda_pct']), step=1.0)
+            nova_senha = st.text_input("Nova Senha de Administrador", value=str(cfg['senha_admin']), type="password")
+            
+            btn_salvar = st.form_submit_button("💾 Salvar Configurações Permanentemente")
+            
+            if btn_salvar:
+                novas_configs = {
+                    'custo_filamento_kg': novo_custo_filamento,
+                    'potencia_w': nova_potencia,
+                    'custo_kwh': novo_custo_kwh,
+                    'valor_impressora': novo_valor_impressora,
+                    'vida_util_h': nova_vida_util,
+                    'custo_manutencao_h': novo_custo_manutencao,
+                    'custo_mao_obra_h': novo_custo_mao_obra,
+                    'taxa_plataforma_pct': nova_taxa_plataforma,
+                    'margem_lucro_pct': nova_margem_lucro,
+                    'perda_pct': nova_perda,
+                    'custo_embalagem_padrao': novo_custo_embalagem,
+                    'senha_admin': nova_senha
+                }
+                salvar_config(novas_configs)
+                st.session_state['config'] = novas_configs
+                st.success("✅ Configurações salvas permanentemente com sucesso!")
+
+        st.divider()
+        st.subheader("🖼️ Upload da Logo")
+        
+        uploaded_logo = st.file_uploader("Enviar ou atualizar imagem da Logo (PNG ou JPG)", type=["png", "jpg", "jpeg"])
+        if uploaded_logo is not None:
+            with open("logo.png", "wb") as f:
+                f.write(uploaded_logo.getbuffer())
+            st.success("Logo atualizada com sucesso! Recarregue a página para visualizar.")
+
+    elif senha_input != "":
+        st.error("Senha incorreta!")
