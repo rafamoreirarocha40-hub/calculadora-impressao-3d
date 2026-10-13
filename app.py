@@ -68,22 +68,39 @@ logo_path = encontrar_logo()
 if 'historico_orcamentos' not in st.session_state:
     st.session_state['historico_orcamentos'] = []
 
-# --- FUNÇÃO PARA LIMPAR FORMULÁRIO (RESTAURAR CAMPOS EM BRANCO/PADRÃO) ---
-def limpar_campos():
+# --- INICIALIZAÇÃO DAS VARIÁVEIS DE FORMULÁRIO SE NÃO EXISTIREM ---
+if 'f_cliente' not in st.session_state:
+    st.session_state['f_cliente'] = ""
+if 'f_peca' not in st.session_state:
+    st.session_state['f_peca'] = ""
+if 'f_peso' not in st.session_state:
+    st.session_state['f_peso'] = 50.0
+if 'f_th' not in st.session_state:
+    st.session_state['f_th'] = 1
+if 'f_tm' not in st.session_state:
+    st.session_state['f_tm'] = 0
+if 'f_cores' not in st.session_state:
+    st.session_state['f_cores'] = "1 Cor (Monocolor)"
+if 'f_comp' not in st.session_state:
+    st.session_state['f_comp'] = "Baixa"
+if 'f_ph' not in st.session_state:
+    st.session_state['f_ph'] = 0
+if 'f_pm' not in st.session_state:
+    st.session_state['f_pm'] = 15
+if 'f_prazo' not in st.session_state:
+    st.session_state['f_prazo'] = 3
+
+def resetar_orcamento():
     st.session_state['f_cliente'] = ""
     st.session_state['f_peca'] = ""
-    st.session_state['f_peso'] = 50.0
-    st.session_state['f_th'] = 1
+    st.session_state['f_peso'] = 0.0
+    st.session_state['f_th'] = 0
     st.session_state['f_tm'] = 0
     st.session_state['f_cores'] = "1 Cor (Monocolor)"
     st.session_state['f_comp'] = "Baixa"
     st.session_state['f_ph'] = 0
-    st.session_state['f_pm'] = 15
+    st.session_state['f_pm'] = 0
     st.session_state['f_prazo'] = 3
-
-# Inicialização das chaves do formulário se não existirem
-if 'f_cliente' not in st.session_state:
-    limpar_campos()
 
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF SIMPLIFICADO ---
 def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_dias):
@@ -150,7 +167,9 @@ with aba_calculadora:
         st.title("🖨️ Orçamento Rápido")
         st.caption("Preencha as informações da peça obtidas no app do fatiador.")
     with col_tit2:
-        st.button("🧹 Novo Orçamento", on_click=limpar_campos, use_container_width=True)
+        if st.button("🧹 Novo Orçamento", use_container_width=True):
+            resetar_orcamento()
+            st.rerun()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -244,7 +263,6 @@ with aba_calculadora:
             st.session_state['historico_orcamentos'].append(novo_registro)
             st.success("✅ Orçamento gravado no histórico!")
 
-        # PDF sem informações internas de tempo, peso, cores e complexidade
         pdf_bytes = gerar_pdf_orcamento_simplificado(
             nome_cliente, nome_peca, preco_sugerido, prazo_entrega
         )
@@ -256,7 +274,6 @@ with aba_calculadora:
         )
 
     with col_act2:
-        # Mensagem do WhatsApp simplificada
         mensagem_wa = (
             f"Olá *{nome_cliente if nome_cliente else 'Cliente'}*! 👋\n\n"
             f"Segue o orçamento para a impressão da peça *{nome_peca if nome_peca else 'Peça 3D'}*:\n"
