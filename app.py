@@ -125,6 +125,35 @@ def resetar_orcamento():
     st.session_state['f_frete_valor'] = 0.00
     st.session_state['f_dias_envio_extra'] = 0
 
+# --- FUNÇÃO PARA SALVAR AUTOMATICAMENTE NO HISTÓRICO COM STATUS ---
+def auto_salvar_historico(cliente, peca, peso, tempo_str, embalagem, frete, entrega_str, prazo, custo_total, exato, sugerido, lucro):
+    registro = {
+        "ID": len(st.session_state['historico_orcamentos']) + 1,
+        "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Cliente": cliente if cliente else "Cliente Geral",
+        "Peca": peca if peca else "Peça 3D",
+        "Status": "Aguardando",
+        "Peso_g": peso,
+        "TempoImpressao": tempo_str,
+        "Embalagem_R$": embalagem,
+        "Frete_R$": frete,
+        "TipoEntrega": entrega_str,
+        "PrazoTotalDias": prazo,
+        "CustoProducao": round(custo_total, 2),
+        "PrecoExato": round(exato, 2),
+        "PrecoSugerido": round(sugerido, 2),
+        "LucroLiquido": round(lucro, 2)
+    }
+    
+    if not st.session_state['historico_orcamentos']:
+        st.session_state['historico_orcamentos'].append(registro)
+    else:
+        ultimo = st.session_state['historico_orcamentos'][-1]
+        if (ultimo['Cliente'] != registro['Cliente'] or 
+            ultimo['Peca'] != registro['Peca'] or 
+            ultimo['PrecoSugerido'] != registro['PrecoSugerido']):
+            st.session_state['historico_orcamentos'].append(registro)
+
 # --- FUNÇÃO PARA GERAR ORÇAMENTO EM PDF COM INFORMAÇÕES DE FRETE ---
 def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete):
     buffer = BytesIO()
@@ -150,15 +179,15 @@ def gerar_pdf_orcamento_simplificado(cliente, peca, preco_sugerido, prazo_total_
     
     frete_info_str = tipo_entrega_str
     if tem_frete and custo_frete > 0:
-        frete_info_str += f" (R$ {custo_frete:.2f})"
+        frete_info_str += " (R$ " + str(f"{custo_frete:.2f}") + ")"
 
     dados_tabela = [
         [Paragraph("<b>Data:</b>", bold_style), Paragraph(data_hoje, text_style)],
         [Paragraph("<b>Cliente:</b>", bold_style), Paragraph(cliente if cliente else "Cliente", text_style)],
         [Paragraph("<b>Peça / Projeto:</b>", bold_style), Paragraph(peca if peca else "Serviço de Impressão 3D", text_style)],
         [Paragraph("<b>Forma de Envio:</b>", bold_style), Paragraph(frete_info_str, text_style)],
-        [Paragraph("<b>Prazo Estimado de Entrega:</b>", bold_style), Paragraph(f"{prazo_total_dias} dias úteis", text_style)],
-        [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph(f"<b>R$ {preco_sugerido:.2f}</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
+        [Paragraph("<b>Prazo Estimado de Entrega:</b>", bold_style), Paragraph(str(prazo_total_dias) + " dias úteis", text_style)],
+        [Paragraph("<b>Valor Total:</b>", bold_style), Paragraph("<b>R$ " + str(f"{preco_sugerido:.2f}") + "</b>", ParagraphStyle('Price', parent=bold_style, fontSize=14, textColor=colors.HexColor('#0F766E')))],
     ]
     
     t = Table(dados_tabela, colWidths=[160, 340])
@@ -308,9 +337,9 @@ with aba_calculadora:
     st.subheader("💡 Resultado do Orçamento")
     
     col_res1, col_res2, col_res3 = st.columns(3)
-    col_res1.metric("Preço Sugerido (Arredondado)", f"R$ {preco_sugerido:.2f}", delta=f"Exato: R$ {preco_exato:.2f}")
-    col_res2.metric("Lucro Líquido Estimado", f"R$ {lucro_liquido:.2f}")
-    col_res3.metric("Prazo Total Estimado", f"{prazo_total_dias} dias úteis", delta=f"Produção: {prazo_producao}d + Envio: {dias_envio_extra}d")
+    col_res1.metric("Preço Sugerido (Arredondado)", "R$ " + str(f"{preco_sugerido:.2f}"), delta="Exato: R$ " + str(f"{preco_exato:.2f}"))
+    col_res2.metric("Lucro Líquido Estimado", "R$ " + str(f"{lucro_liquido:.2f}"))
+    col_res3.metric("Prazo Total Estimado", str(prazo_total_dias) + " dias úteis", delta="Prod: " + str(prazo_producao) + "d + Envio: " + str(dias_envio_extra) + "d")
 
     st.divider()
 
@@ -320,69 +349,96 @@ with aba_calculadora:
     col_act1, col_act2 = st.columns(2)
 
     with col_act1:
-        if st.button("💾 Registrar Orçamento no Histórico"):
-            novo_registro = {
-                "DataHora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Cliente": nome_cliente if nome_cliente else "Cliente Exemplo",
-                "Peca": nome_peca if nome_peca else "Peça 3D",
-                "Peso_g": peso_g,
-                "TempoImpressao": str_tempo_imp,
-                "Embalagem_R$": custo_embalagem,
-                "Frete_R$": custo_frete,
-                "TipoEntrega": tipo_entrega_str,
-                "PrazoTotalDias": prazo_total_dias,
-                "CustoProducao": round(custo_producao_total, 2),
-                "PrecoExato": round(preco_exato, 2),
-                "PrecoSugerido": round(preco_sugerido, 2),
-                "LucroLiquido": round(lucro_liquido, 2)
-            }
-            st.session_state['historico_orcamentos'].append(novo_registro)
-            st.success("✅ Orçamento gravado no histórico!")
-
         pdf_bytes = gerar_pdf_orcamento_simplificado(
             nome_cliente, nome_peca, preco_sugerido, prazo_total_dias, tipo_entrega_str, custo_frete, tem_frete
         )
-        st.download_button(
+        
+        if st.download_button(
             label="📄 Baixar Orçamento em PDF",
             data=pdf_bytes,
-            file_name=f"Orcamento_{nome_cliente.replace(' ', '_') if nome_cliente else 'Cliente'}.pdf",
+            file_name="Orcamento_" + (nome_cliente.replace(' ', '_') if nome_cliente else 'Cliente') + ".pdf",
             mime="application/pdf"
-        )
+        ):
+            auto_salvar_historico(
+                nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
+                custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
+                preco_exato, preco_sugerido, lucro_liquido
+            )
 
     with col_act2:
-        info_frete_wa = f"🚚 *Envio:* {tipo_entrega_str} (R$ {custo_frete:.2f})\n" if tem_frete and custo_frete > 0 else f"🚚 *Envio:* {tipo_entrega_str}\n"
+        info_frete_wa = "🚚 *Envio:* " + tipo_entrega_str + " (R$ " + str(f"{custo_frete:.2f}") + ")\n" if tem_frete and custo_frete > 0 else "🚚 *Envio:* " + tipo_entrega_str + "\n"
+        
         mensagem_wa = (
-            f"Olá *{nome_cliente if nome_cliente else 'Cliente'}*! 👋\n\n"
-            f"Segue o orçamento para a impressão da peça *{nome_peca if nome_peca else 'Peça 3D'}*:\n"
-            f"📌 *Valor Total:* R$ {preco_sugerido:.2f}\n"
-            f"{info_frete_wa}"
-            f"⏱️ *Prazo Estimado de Entrega:* {prazo_total_dias} dias úteis\n\n"
-            f"Podemos confirmar o pedido?"
+            "Olá *" + (nome_cliente if nome_cliente else 'Cliente') + "*! 👋\n\n"
+            "Segue o orçamento para a impressão da peça *" + (nome_peca if nome_peca else 'Peça 3D') + "*:\n"
+            "📌 *Valor Total:* R$ " + str(f"{preco_sugerido:.2f}") + "\n"
+            + info_frete_wa +
+            "⏱️ *Prazo Estimado de Entrega:* " + str(prazo_total_dias) + " dias úteis\n\n"
+            "Podemos confirmar o pedido?"
         )
-        wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(mensagem_wa)}"
-        st.markdown(f'<a href="{wa_url}" target="_blank"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+        wa_url = "https://api.whatsapp.com/send?text=" + urllib.parse.quote(mensagem_wa)
+        
+        st.markdown('<a href="' + wa_url + '" target="_blank" onclick="window.location.reload();"><button style="background-color:#25D366; color:white; border:none; padding:10px 18px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px; width:100%;">💬 Enviar no WhatsApp</button></a>', unsafe_allow_html=True)
+        auto_salvar_historico(
+            nome_cliente, nome_peca, peso_g, str_tempo_imp, custo_embalagem, 
+            custo_frete, tipo_entrega_str, prazo_total_dias, custo_producao_total, 
+            preco_exato, preco_sugerido, lucro_liquido
+        )
 
-        if st.button("🧹 Criar Novo Orçamento (Zerar Tela)", use_container_width=True):
-            resetar_orcamento()
-            st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🧹 Criar Novo Orçamento (Zerar Tela)", use_container_width=True):
+        resetar_orcamento()
+        st.rerun()
 
-    # --- SESSÃO DE HISTÓRICO E EXPORTAÇÃO ---
+    # --- SESSÃO DE HISTÓRICO COM FILTROS DE STATUS ---
     st.divider()
-    st.subheader("📊 Histórico de Orçamentos Registrados")
+    st.subheader("📊 Histórico & Funil de Vendas")
 
     if len(st.session_state['historico_orcamentos']) > 0:
+        # Filtros de Status
+        col_f1, col_f2 = st.columns([2, 1])
+        with col_f1:
+            filtro_status = st.radio(
+                "Filtrar por Status do Pedido:",
+                ["Todos", "Aguardando", "Pedido Fechado", "Cancelado"],
+                horizontal=True
+            )
+        
         df_historico = pd.DataFrame(st.session_state['historico_orcamentos'])
-        st.dataframe(df_historico, use_container_width=True)
+
+        # Atualizar Status de um Orçamento Específico
+        with st.expander("✏️ Atualizar Status de um Orçamento"):
+            col_up1, col_up2, col_up3 = st.columns([1, 2, 1])
+            with col_up1:
+                id_sel = st.selectbox("Selecione o ID", df_historico['ID'].tolist())
+            with col_up2:
+                novo_st = st.selectbox("Novo Status", ["Aguardando", "Pedido Fechado", "Cancelado"])
+            with col_up3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Atualizar Status"):
+                    for item in st.session_state['historico_orcamentos']:
+                        if item['ID'] == id_sel:
+                            item['Status'] = novo_st
+                    st.success("Status atualizado com sucesso!")
+                    st.rerun()
+
+        # Filtragem dos dados para exibição
+        if filtro_status != "Todos":
+            df_exibicao = df_historico[df_historico['Status'] == filtro_status]
+        else:
+            df_exibicao = df_historico
+
+        st.dataframe(df_exibicao, use_container_width=True)
 
         csv_buffer = df_historico.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Exportar Histórico (CSV para Power BI / Excel)",
+            label="📥 Importar Histórico (CSV para Power BI / Excel)",
             data=csv_buffer,
-            file_name=f"historico_orcamentos_3d_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+            file_name="historico_orcamentos_3d_" + datetime.datetime.now().strftime('%Y%m%d') + ".csv",
             mime="text/csv"
         )
     else:
-        st.info("Nenhum orçamento registrado no histórico ainda. Clique em '💾 Registrar Orçamento no Histórico' acima para salvar os dados.")
+        st.info("Nenhum orçamento gerado ainda. O histórico será alimentado automaticamente ao baixar um PDF ou enviar uma mensagem no WhatsApp.")
 
 # ==========================================
 # ABA 2: CONFIGURAÇÕES OCULTAS (PROTEGIDA)
